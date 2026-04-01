@@ -4,7 +4,7 @@
 
 // Google Apps Script API
 const APP_SCRIPT_URL =
-"https://script.google.com/macros/s/AKfycby-xfirOFVh_RAS3CdkM6TQsR9oR5rRuo-hzrqcmyhG8ktRZjE2MDFWXRhwQxSkUtj8Pw/exec";
+"https://script.google.com/macros/s/AKfycbzarLXxVNC2b0HtRYxDMjKtU6_XvBv0MN7Lc4KwoU1rB3Opg8SK_Yz7I9HpUxiFZTw/exec";
 
 // backward compatibility
 const SHEETS_API_URL = APP_SCRIPT_URL;
