@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Martinsville CDL Program - Player</title>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="config.js?v=20260730-contact1" defer></script>
+  <script src="frontend-api.js" defer></script>
   <style>
     :root{
       --navy:#17324d;
@@ -424,337 +424,55 @@
 
   <script src="https://www.youtube.com/iframe_api"></script>
   <script>
+    let player;
+    let playerReady = false;
+    let selectedModule = null;
+    let selectedClass = null;
+    document.addEventListener("DOMContentLoaded", () => {
     const username = requireAuth();
     document.getElementById("who").textContent = `Signed in as ${username}`;
 
-    const moduleId = Number(qs("m"));
-    const mod = MODULES.find(x => x.id === moduleId) || MODULES[0];
-    document.getElementById("title").textContent = mod.title;
-    document.getElementById("modulePill").textContent = `Module ${mod.id}`;
+    const classId = qs("classId") || DEFAULT_CLASS_ID;
+    const moduleId = qs("m") || "1";
 
-    let player;
     let duration = 0;
     let maxWatched = 0;
     let validPlaySeconds = 0;
     let logged = false;
-
     let progressTick = null;
     let guardTick = null;
-
     let lastWallTime = 0;
     let lastPlayerTime = 0;
     let suppressGuardUntil = 0;
     let correctingSeek = false;
-
     const SEEK_TOLERANCE_SECONDS = 0.75;
     const MAX_INTERVAL_SECONDS = 1.25;
     const ACTIVE_TIME_BUFFER_SECONDS = 10;
     const GUARD_INTERVAL_MS = 150;
 
-    function clamp(n, min, max) {
-      return Math.min(Math.max(n, min), max);
-    }
-
-    function formatSeconds(sec) {
-      sec = Math.max(0, Math.floor(sec || 0));
-      const h = Math.floor(sec / 3600);
-      const m = Math.floor((sec % 3600) / 60);
-      const s = sec % 60;
-
-      if (h > 0) {
-        return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-      }
-      return `${m}:${String(s).padStart(2, "0")}`;
-    }
-
-    function pct() {
-      if (!duration) return 0;
-      return maxWatched / duration;
-    }
-
-    function requiredWatchPercent() {
-      return REQUIRED_WATCH_PERCENT || 0.9;
-    }
-
-    function requiredActiveSeconds() {
-      if (!duration) return 0;
-      const byPercent = duration * requiredWatchPercent();
-      const minusTen = Math.max(0, duration - ACTIVE_TIME_BUFFER_SECONDS);
-      return Math.min(byPercent, minusTen);
-    }
-
-    function completionReady() {
-      return pct() >= requiredWatchPercent() && validPlaySeconds >= requiredActiveSeconds();
-    }
-
-    function isVisibleForCredit() {
-      return document.visibilityState === "visible" && document.hasFocus();
-    }
-
-    function updateUI() {
-      const watchedPercent = Math.floor(pct() * 100);
-      const requiredPercent = Math.floor(requiredWatchPercent() * 100);
-      const activeRequired = requiredActiveSeconds();
-
-      document.getElementById("ruleText").textContent =
-        `${requiredPercent}% minimum viewing threshold + active viewing time`;
-
-      document.getElementById("progress").textContent =
-        `Progress: ${watchedPercent}% · Active time: ${formatSeconds(validPlaySeconds)} / ${formatSeconds(activeRequired)}`;
-
-      document.getElementById("progressFill").style.width = `${watchedPercent}%`;
-
-      if (logged) {
-        document.getElementById("statusText").textContent = "Complete";
-        return;
-      }
-
-      document.getElementById("statusText").textContent =
-        completionReady() ? "Eligible for Completion" : "In Progress";
-
-      if (!completionReady()) {
-        document.getElementById("done").innerHTML =
-          `Watch at least ${requiredPercent}% and keep the video actively playing for ${formatSeconds(activeRequired)}.`;
-      }
-    }
-
-    function completeModule() {
-      if (logged) return;
-      logged = true;
-
-      stopTimers();
-
-      document.getElementById("statusText").textContent = "Logging Completion";
-      document.getElementById("done").innerHTML = "<b>Module complete.</b> Logging to Google Sheets…";
-
-      apiLogModule(username, mod.id).then(res => {
-        if (!res.ok) {
-          logged = false;
-          startTimers();
-          document.getElementById("statusText").textContent = "Logging Error";
-          document.getElementById("done").innerHTML =
-            "<b>Error logging completion:</b> " + (res.error || "Unknown");
-          return;
-        }
-
-        document.getElementById("statusText").textContent = "Complete";
-        document.getElementById("done").innerHTML = "<b>Logged.</b> You can go back to Modules.";
-      }).catch(err => {
-        logged = false;
-        startTimers();
-        console.error(err);
-        document.getElementById("statusText").textContent = "Logging Error";
-        document.getElementById("done").innerHTML = "<b>Error logging completion.</b>";
-      });
-    }
-
-    function maybeComplete() {
-      if (!logged && completionReady()) {
-        completeModule();
-      }
-    }
-
-    function enforcePlaybackRate() {
-      try {
-        if (player && typeof player.getPlaybackRate === "function") {
-          if (player.getPlaybackRate() !== 1) {
-            player.setPlaybackRate(1);
-          }
-        }
-      } catch {}
-    }
-
-    function performSeekCorrection(targetTime) {
-      if (!player || correctingSeek) return;
-
-      correctingSeek = true;
-      suppressGuardUntil = Date.now() + 1200;
-
-      try { player.pauseVideo(); } catch {}
-
-      setTimeout(() => {
-        try {
-          player.seekTo(Math.max(0, targetTime), true);
-        } catch {}
-
-        setTimeout(() => {
-          try {
-            if (!logged) player.playVideo();
-          } catch {}
-          correctingSeek = false;
-        }, 180);
-      }, 60);
-    }
-
-    function detectAndCorrectSkip() {
-      if (!player || !duration || logged) return;
-      if (correctingSeek) return;
-      if (Date.now() < suppressGuardUntil) return;
-
-      let currentTime = 0;
-      let state = -1;
-
-      try {
-        currentTime = clamp(player.getCurrentTime() || 0, 0, duration);
-        state = player.getPlayerState();
-      } catch {
-        return;
-      }
-
-      if (
-        (state === YT.PlayerState.PLAYING ||
-         state === YT.PlayerState.PAUSED ||
-         state === YT.PlayerState.BUFFERING ||
-         state === YT.PlayerState.ENDED) &&
-        currentTime > maxWatched + SEEK_TOLERANCE_SECONDS
-      ) {
-        performSeekCorrection(maxWatched);
-        updateUI();
-      }
-    }
-
-    function progressLoop() {
-      if (!player || !duration || logged) return;
-
-      const now = Date.now();
-      let elapsed = (now - lastWallTime) / 1000;
-      lastWallTime = now;
-      elapsed = clamp(elapsed, 0, MAX_INTERVAL_SECONDS);
-
-      let state = -1;
-      let currentTime = 0;
-
-      try {
-        state = player.getPlayerState();
-        currentTime = clamp(player.getCurrentTime() || 0, 0, duration);
-      } catch {
-        return;
-      }
-
-      enforcePlaybackRate();
-
-      if (correctingSeek) {
-        lastPlayerTime = currentTime;
-        updateUI();
-        return;
-      }
-
-      if (currentTime > maxWatched + SEEK_TOLERANCE_SECONDS) {
-        performSeekCorrection(maxWatched);
-        updateUI();
-        return;
-      }
-
-      if (state === YT.PlayerState.PLAYING) {
-        if (currentTime > maxWatched) {
-          maxWatched = currentTime;
-        }
-
-        const forwardDelta = currentTime - lastPlayerTime;
-        const looksNatural = forwardDelta >= -0.25 && forwardDelta <= 1.5;
-
-        if (isVisibleForCredit() && looksNatural) {
-          validPlaySeconds = Math.min(duration, validPlaySeconds + elapsed);
-        }
-      }
-
-      if (state === YT.PlayerState.ENDED) {
-        if (currentTime >= duration - 1.5 && maxWatched < duration - 1.5) {
-          performSeekCorrection(maxWatched);
-          updateUI();
-          return;
-        }
-
-        maxWatched = Math.max(maxWatched, currentTime);
-      }
-
-      lastPlayerTime = currentTime;
-      updateUI();
-      maybeComplete();
-    }
-
-    function startTimers() {
-      stopTimers();
-      lastWallTime = Date.now();
-
-      progressTick = setInterval(progressLoop, 250);
-      guardTick = setInterval(detectAndCorrectSkip, GUARD_INTERVAL_MS);
-    }
-
-    function stopTimers() {
-      if (progressTick) clearInterval(progressTick);
-      if (guardTick) clearInterval(guardTick);
-      progressTick = null;
-      guardTick = null;
-    }
-
-    function onYouTubeIframeAPIReady() {
-      player = new YT.Player("player", {
-        videoId: mod.youtubeId,
-        playerVars: {
-          controls: 1,
-          disablekb: 1,
-          fs: 1,
-          rel: 0,
-          modestbranding: 1,
-          playsinline: 1
-        },
-        events: {
-          onReady: () => {
-            duration = player.getDuration() || 0;
-            lastWallTime = Date.now();
-            lastPlayerTime = 0;
-
-            enforcePlaybackRate();
-            updateUI();
-            startTimers();
-          },
-
-          onStateChange: (e) => {
-            if (!player || !duration || logged) return;
-
-            let currentTime = 0;
-            try {
-              currentTime = clamp(player.getCurrentTime() || 0, 0, duration);
-            } catch {}
-
-            if (
-              !correctingSeek &&
-              currentTime > maxWatched + SEEK_TOLERANCE_SECONDS &&
-              (
-                e.data === YT.PlayerState.PLAYING ||
-                e.data === YT.PlayerState.PAUSED ||
-                e.data === YT.PlayerState.BUFFERING ||
-                e.data === YT.PlayerState.ENDED
-              )
-            ) {
-              performSeekCorrection(maxWatched);
-              updateUI();
-              return;
-            }
-
-            if (e.data === YT.PlayerState.ENDED) {
-              if (currentTime >= duration - 1.5) {
-                maxWatched = Math.max(maxWatched, currentTime);
-              }
-              updateUI();
-              maybeComplete();
-            }
-          },
-
-          onPlaybackRateChange: () => {
-            enforcePlaybackRate();
-          }
-        }
-      });
-    }
-
-    document.addEventListener("visibilitychange", updateUI);
-    window.addEventListener("focus", updateUI);
-    window.addEventListener("blur", updateUI);
-
-    window.addEventListener("beforeunload", () => {
-      stopTimers();
+    function clamp(n, min, max) { return Math.min(Math.max(n, min), max); }
+    function formatSeconds(sec) { sec = Math.max(0, Math.floor(sec || 0)); const m = Math.floor(sec / 60); const s = sec % 60; return `${m}:${String(s).padStart(2, "0")}`; }
+    function requiredWatchPercent() { return Number((selectedModule && selectedModule.requiredWatchPercent) || (selectedClass && selectedClass.requiredWatchPercent) || REQUIRED_WATCH_PERCENT || 0.9); }
+    function pct() { return duration ? maxWatched / duration : 0; }
+    function requiredActiveSeconds() { if (!duration) return 0; return Math.min(duration * requiredWatchPercent(), Math.max(0, duration - ACTIVE_TIME_BUFFER_SECONDS)); }
+    function completionReady() { return pct() >= requiredWatchPercent() && validPlaySeconds >= requiredActiveSeconds(); }
+    function isVisibleForCredit() { return document.visibilityState === "visible" && document.hasFocus(); }
+    function updateUI() { const wp=Math.floor(pct()*100), rp=Math.floor(requiredWatchPercent()*100), ar=requiredActiveSeconds(); document.getElementById("ruleText").textContent=`${rp}% minimum viewing threshold + active viewing time`; document.getElementById("progress").textContent=`Progress: ${wp}% · Active time: ${formatSeconds(validPlaySeconds)} / ${formatSeconds(ar)}`; document.getElementById("progressFill").style.width=`${wp}%`; document.getElementById("statusText").textContent=logged?"Complete":(completionReady()?"Eligible for Completion":"In Progress"); if(!logged) document.getElementById("done").innerHTML=`Watch at least ${rp}% and keep the video actively playing for ${formatSeconds(ar)}.`; }
+    function stopTimers(){ if(progressTick)clearInterval(progressTick); if(guardTick)clearInterval(guardTick); progressTick=null; guardTick=null; }
+    function startTimers(){ stopTimers(); progressTick=setInterval(progressLoop,500); guardTick=setInterval(detectAndCorrectSkip,GUARD_INTERVAL_MS); }
+    function completeModule(){ if(logged)return; logged=true; stopTimers(); document.getElementById("done").innerHTML="<b>Module complete.</b> Logging to Google Sheets…"; apiLogModule(username, selectedModule.id, classId).then(res=>{ if(!res.ok){ logged=false; startTimers(); document.getElementById("done").innerHTML="<b>Error logging completion:</b> "+(res.error||"Unknown"); return;} document.getElementById("statusText").textContent="Complete"; document.getElementById("done").innerHTML="<b>Logged.</b> You can go back to Modules."; }).catch(err=>{logged=false;startTimers();console.error(err);document.getElementById("done").innerHTML="<b>Error logging completion.</b>";}); }
+    function maybeComplete(){ if(!logged&&completionReady())completeModule(); }
+    function enforcePlaybackRate(){ try{ if(player && player.getPlaybackRate() !== 1) player.setPlaybackRate(1); }catch{} }
+    function performSeekCorrection(t){ if(!player||correctingSeek)return; correctingSeek=true; suppressGuardUntil=Date.now()+1200; try{player.pauseVideo();}catch{} setTimeout(()=>{try{player.seekTo(Math.max(0,t),true);}catch{} setTimeout(()=>{try{if(!logged)player.playVideo();}catch{} correctingSeek=false;},180);},60); }
+    function detectAndCorrectSkip(){ if(!player||!duration||logged||correctingSeek||Date.now()<suppressGuardUntil)return; let currentTime=0,state=-1; try{ currentTime=clamp(player.getCurrentTime() || 0, 0, duration); state=player.getPlayerState(); }catch{return;} if([YT.PlayerState.PLAYING,YT.PlayerState.PAUSED,YT.PlayerState.BUFFERING,YT.PlayerState.ENDED].includes(state)&&currentTime>maxWatched+SEEK_TOLERANCE_SECONDS){ performSeekCorrection(maxWatched); updateUI(); } }
+    function progressLoop(){ if(!player||!duration||logged)return; const now=Date.now(); let currentTime=0,state=-1; try{ currentTime=clamp(player.getCurrentTime() || 0, 0, duration); state=player.getPlayerState(); }catch{return;} enforcePlaybackRate(); if(state===YT.PlayerState.PLAYING){ const wallDelta=lastWallTime?Math.min((now-lastWallTime)/1000,MAX_INTERVAL_SECONDS):0; const playerDelta=lastPlayerTime?Math.max(0,currentTime-lastPlayerTime):0; if(isVisibleForCredit() && playerDelta <= MAX_INTERVAL_SECONDS + SEEK_TOLERANCE_SECONDS){ validPlaySeconds += wallDelta; maxWatched = Math.max(maxWatched,currentTime); } } lastWallTime=now; lastPlayerTime=currentTime; updateUI(); maybeComplete(); }
+    function initOrLoadPlayer(){ if(!selectedModule)return; if(player){ player.loadVideoById(selectedModule.youtubeId); return; } if(window.YT&&YT.Player){ player = new YT.Player("player",{videoId:selectedModule.youtubeId,playerVars:{rel:0,modestbranding:1,playsinline:1,controls:1,disablekb:1},events:{onReady:onPlayerReady,onStateChange:onPlayerStateChange,onPlaybackRateChange:enforcePlaybackRate}}); } }
+    window.onYouTubeIframeAPIReady = initOrLoadPlayer;
+    function onPlayerReady(){ playerReady=true; try{duration=player.getDuration()||0;player.setPlaybackRate(1);}catch{} if(selectedModule&&player&&player.loadVideoById) player.cueVideoById(selectedModule.youtubeId); updateUI(); startTimers(); }
+    function onPlayerStateChange(){ try{duration=player.getDuration()||duration;player.setPlaybackRate(1);}catch{} }
+    async function loadModuleData(){ const dash=await apiGetStudentDashboard(username); selectedClass=(dash.classes||[]).find(c=>c.id===classId)||null; const mods=await apiListModules(classId,true); selectedModule=(mods.modules||[]).find(m=>String(m.id)===String(moduleId)); if(!selectedModule) throw new Error("Module not found"); document.getElementById("title").textContent=selectedModule.title; document.getElementById("modulePill").textContent=`${selectedClass?selectedClass.title:"Training"} · Module ${selectedModule.id}`; initOrLoadPlayer(); }
+    loadModuleData().catch(err=>{ console.error(err); document.getElementById("done").textContent="Unable to load module."; });
+    window.addEventListener("beforeunload",stopTimers);
     });
   </script>
 </body>

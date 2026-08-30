@@ -1,286 +1,692 @@
 <!doctype html>
 <html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-
-<title>Training Admin</title>
-
-<script src="config.js"></script>
-<script src="app.js"></script>
-
-<style>
-body{
-  font-family: system-ui, Arial;
-  background:#f5f7fa;
-  padding:30px;
-  max-width:900px;
-  margin:auto;
-}
-
-h2{
-  margin-top:0;
-}
-
-.card{
-  background:white;
-  border-radius:12px;
-  padding:20px;
-  box-shadow:0 4px 10px rgba(0,0,0,.05);
-  margin-bottom:20px;
-}
-
-input{
-  padding:10px;
-  font-size:14px;
-  width:100%;
-  margin-bottom:10px;
-}
-
-button{
-  padding:10px 16px;
-  border:none;
-  border-radius:8px;
-  background:#2b7cff;
-  color:white;
-  cursor:pointer;
-}
-
-button:hover{
-  background:#1c63d5;
-}
-
-.table{
-  width:100%;
-  border-collapse:collapse;
-}
-
-.table th,.table td{
-  padding:10px;
-  border-bottom:1px solid #ddd;
-  text-align:left;
-}
-
-.actions button{
-  margin-right:6px;
-}
-
-.success{
-  color:green;
-}
-
-.error{
-  color:red;
-}
-</style>
-</head>
-
-<body>
-
-<div class="card" id="loginCard">
-
-<h2>Admin Login</h2>
-
-<input id="adminUser" placeholder="Admin username">
-<input id="adminPass" type="password" placeholder="Password">
-
-<button onclick="adminLogin()">Login</button>
-
-<div id="loginMsg"></div>
-
-</div>
-
-
-<div id="adminPanel" style="display:none">
-
-<div class="card">
-
-<h2>Student Management</h2>
-
-<input id="search" placeholder="Search students..." onkeyup="filterStudents()">
-
-<table class="table" id="studentTable">
-<thead>
-<tr>
-<th>Username</th>
-<th>Password</th>
-<th>Test Score</th>
-<th>Actions</th>
-</tr>
-</thead>
-
-<tbody id="studentList"></tbody>
-
-</table>
-
-</div>
-
-
-<div class="card">
-
-<h2>Add Student</h2>
-
-<input id="newUser" placeholder="Username">
-<input id="newPass" placeholder="Password">
-
-<button onclick="addStudent()">Add Student</button>
-
-<div id="msg"></div>
-
-</div>
-
-</div>
-
-
-<script>
-
-let students = []
-
-
-async function adminLogin(){
-
-const user = document.getElementById("adminUser").value
-const pass = document.getElementById("adminPass").value
-
-const res = await fetch(APP_SCRIPT_URL+"?action=adminLogin&username="+user+"&password="+pass)
-
-const data = await res.json()
-
-if(!data.ok){
-document.getElementById("loginMsg").innerHTML="<div class='error'>Login failed</div>"
-return
-}
-
-document.getElementById("loginCard").style.display="none"
-document.getElementById("adminPanel").style.display="block"
-
-loadStudents()
-
-}
-
-
-
-async function loadStudents(){
-
-const res = await fetch(APP_SCRIPT_URL+"?action=listStudents")
-
-const data = await res.json()
-
-students = data.students || []
-
-renderStudents()
-
-}
-
-
-
-function renderStudents(){
-
-const list = document.getElementById("studentList")
-
-list.innerHTML=""
-
-students.forEach(s=>{
-
-const row = document.createElement("tr")
-
-row.innerHTML=`
-<td>${s.username}</td>
-<td>${s.password}</td>
-<td>${s.testScore ?? ""}</td>
-<td class="actions">
-<button onclick="editStudent('${s.username}','${s.password}')">Edit</button>
-<button onclick="deleteStudent('${s.username}')">Delete</button>
-</td>
-`
-
-list.appendChild(row)
-
-})
-
-}
-
-
-
-function filterStudents(){
-
-const q = document.getElementById("search").value.toLowerCase()
-
-const rows = document.querySelectorAll("#studentList tr")
-
-rows.forEach(r=>{
-r.style.display = r.innerText.toLowerCase().includes(q) ? "" : "none"
-})
-
-}
-
-
-
-async function addStudent(){
-
-const u = document.getElementById("newUser").value
-const p = document.getElementById("newPass").value
-
-const res = await fetch(APP_SCRIPT_URL,{
-method:"POST",
-body:JSON.stringify({
-action:"addStudent",
-username:u,
-password:p
-})
-})
-
-const data = await res.json()
-
-if(!data.ok){
-document.getElementById("msg").innerHTML="<div class='error'>Failed</div>"
-return
-}
-
-document.getElementById("msg").innerHTML="<div class='success'>Student added</div>"
-
-loadStudents()
-
-}
-
-
-
-function editStudent(user,pass){
-
-const newUser = prompt("Username",user)
-const newPass = prompt("Password",pass)
-
-if(!newUser || !newPass) return
-
-fetch(APP_SCRIPT_URL,{
-method:"POST",
-body:JSON.stringify({
-action:"updateStudent",
-username:user,
-newUsername:newUser,
-password:newPass
-})
-}).then(loadStudents)
-
-}
-
-
-
-function deleteStudent(user){
-
-if(!confirm("Delete "+user+" ?")) return
-
-fetch(APP_SCRIPT_URL,{
-method:"POST",
-body:JSON.stringify({
-action:"deleteStudent",
-username:user
-})
-}).then(loadStudents)
-
-}
-
-</script>
-
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Training Admin</title>
+    <script src="config.js?v=20260730-contact1" defer></script>
+    <script src="frontend-api.js" defer></script>
+    <style>
+      :root {
+        --navy: #17324d;
+        --navy-dark: #10263a;
+        --green: #2f8f4e;
+        --bg: #eef2f6;
+        --card: #fff;
+        --border: #d8e0e8;
+      }
+      body {
+        font-family: system-ui, Arial;
+        background: var(--bg);
+        margin: 0;
+      }
+      .top {
+        background: linear-gradient(135deg, var(--navy-dark), var(--navy));
+        color: white;
+        border-bottom: 4px solid var(--green);
+        padding: 20px;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .card {
+        background: white;
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border);
+        box-shadow: 0 8px 20px rgba(16, 38, 58, 0.08);
+      }
+      input,
+      textarea,
+      select {
+        padding: 10px;
+        font-size: 14px;
+        width: 100%;
+        margin: 5px 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      button {
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--navy);
+        color: white;
+        font-weight: 800;
+        cursor: pointer;
+        margin: 2px;
+      }
+      .secondary {
+        background: #667085;
+      }
+      .danger {
+        background: #b42318;
+      }
+      .success {
+        color: green;
+      }
+      .error {
+        color: #b42318;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .table th,
+      .table td {
+        border-bottom: 1px solid #ddd;
+        padding: 9px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .hidden {
+        display: none;
+      }
+      .checks label {
+        display: block;
+        margin: 4px 0;
+      }
+      .checks input {
+        width: auto;
+        margin-right: 8px;
+      }
+      @media (max-width: 800px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="top"><h1>Martinsville CDL Training Admin</h1></div>
+    <div class="wrap">
+      <div class="card" id="loginCard">
+        <h2>Admin Login</h2>
+        <input id="adminUser" placeholder="Admin username" /><input
+          id="adminPass"
+          type="password"
+          placeholder="Password"
+        /><button id="loginBtn">Login</button>
+        <div id="loginMsg"></div>
+      </div>
+      <div id="adminPanel" class="hidden">
+        <div class="tabs">
+          <button data-tab="students">Students</button
+          ><button data-tab="classes">Classes</button
+          ><button data-tab="modules">Modules</button
+          ><button data-tab="questions">Test Questions</button>
+        </div>
+        <section id="students" class="card tab">
+          <h2>Student Management</h2>
+          <h3>Pending Applications</h3>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>License Information</th>
+                <th>Contact</th>
+                <th>Requested Class</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="pendingStudentList"></tbody>
+          </table>
+          <p id="pendingEmpty" class="small">No pending applications.</p>
+          <h3>Active Students</h3>
+          <input id="search" placeholder="Search students" />
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Password</th>
+                <th>License Info</th>
+                <th>Contact</th>
+                <th>Classes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="studentList"></tbody>
+          </table>
+          <h3 id="studentFormTitle">Add / Edit Student</h3>
+          <div class="grid">
+            <input
+              id="studentUsername"
+              placeholder="Username (immutable after creation)"
+            /><input
+              id="studentPassword"
+              type="password"
+              placeholder="Password"
+            /><input
+              id="studentName"
+              placeholder="Full name as shown on license"
+            /><input id="studentLicense" placeholder="License number" /><input
+              id="studentContact"
+              placeholder="Email or cell phone (email preferred)"
+            /><input
+              id="studentDob"
+              type="date"
+              placeholder="DOB"
+            />
+          </div>
+          <div id="studentClasses" class="checks"></div>
+          <button id="saveStudent">Save Student</button
+          ><button id="resetStudent" class="secondary">Clear</button>
+          <div id="studentMsg"></div>
+        </section>
+        <section id="classes" class="card tab hidden">
+          <h2>Classes</h2>
+          <table class="table">
+            <tbody id="classList"></tbody>
+          </table>
+          <h3>Add / Edit Class</h3>
+          <input id="classId" type="hidden" /><input
+            id="classTitle"
+            placeholder="Class title"
+          /><textarea id="classDesc" placeholder="Description"></textarea>
+          <div class="grid">
+            <input
+              id="classPass"
+              type="number"
+              placeholder="Passing score"
+            /><input
+              id="classWatch"
+              type="number"
+              step="0.01"
+              placeholder="Required watch percent (0.9)"
+            /><input
+              id="classSort"
+              type="number"
+              placeholder="Sort order"
+            /><label
+              ><input
+                id="classActive"
+                type="checkbox"
+                checked
+                style="width: auto"
+              />
+              Active</label
+            >
+          </div>
+          <button id="saveClass">Save Class</button>
+        </section>
+        <section id="modules" class="card tab hidden">
+          <h2>Modules</h2>
+          <table class="table">
+            <tbody id="moduleList"></tbody>
+          </table>
+          <h3>Add / Edit Module</h3>
+          <input id="moduleId" type="hidden" /><select id="moduleClass"></select
+          ><input id="moduleTitle" placeholder="Module title" /><input
+            id="moduleYoutube"
+            placeholder="YouTube ID or full YouTube URL"
+          />
+          <div class="grid">
+            <input
+              id="moduleSort"
+              type="number"
+              placeholder="Sort order"
+            /><input
+              id="moduleWatch"
+              type="number"
+              step="0.01"
+              placeholder="Required watch percent"
+            /><label
+              ><input
+                id="moduleActive"
+                type="checkbox"
+                checked
+                style="width: auto"
+              />
+              Active</label
+            >
+          </div>
+          <button id="saveModule">Save Module</button>
+        </section>
+        <section id="questions" class="card tab hidden">
+          <h2>Test Questions</h2>
+          <select id="questionClassFilter"></select>
+          <table class="table">
+            <tbody id="questionList"></tbody>
+          </table>
+          <h3>Add / Edit Question</h3>
+          <input id="questionId" type="hidden" /><select
+            id="questionClass"
+          ></select
+          ><textarea id="questionText" placeholder="Question text"></textarea>
+          <div class="grid">
+            <input id="optionA" placeholder="Option A" /><input
+              id="optionB"
+              placeholder="Option B"
+            /><input id="optionC" placeholder="Option C" /><input
+              id="optionD"
+              placeholder="Option D"
+            /><input
+              id="correctIndex"
+              type="number"
+              min="0"
+              max="3"
+              placeholder="Correct index (0-3)"
+            /><input
+              id="questionSort"
+              type="number"
+              placeholder="Sort order"
+            /><label
+              ><input
+                id="questionActive"
+                type="checkbox"
+                checked
+                style="width: auto"
+              />
+              Active</label
+            >
+          </div>
+          <button id="saveQuestion">Save Question</button>
+        </section>
+      </div>
+    </div>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        let students = [],
+          pendingStudents = [],
+          classes = [],
+          modules = [],
+          questions = [],
+          editingStudent = false,
+          reviewingPending = false,
+          pendingSupported = true;
+        const $ = (id) => document.getElementById(id);
+        function msg(id, t, ok = true) {
+          $(id).innerHTML =
+            `<div class="${ok ? "success" : "error"}">${t}</div>`;
+        }
+        async function loadAll() {
+          classes = (await apiListClasses(false)).classes || [];
+          const studentData = await apiGet("listStudents");
+          students = studentData.students || [];
+          pendingSupported = Array.isArray(studentData.pendingStudents);
+          pendingStudents = pendingSupported ? studentData.pendingStudents : [];
+          modules = (await apiListModules("", false)).modules || [];
+          questions = (await apiListTestQuestions("", false)).questions || [];
+          renderAll();
+        }
+        function classOptions(sel) {
+          sel.innerHTML = "";
+          classes
+            .filter((c) => String(c.active).toLowerCase() !== "false")
+            .forEach((c) => {
+              const o = document.createElement("option");
+              o.value = c.id;
+              o.textContent = c.title;
+              sel.appendChild(o);
+            });
+        }
+        function renderAll() {
+          renderPendingStudents();
+          renderStudents();
+          renderClasses();
+          renderModules();
+          renderQuestions();
+          [
+            $("moduleClass"),
+            $("questionClass"),
+            $("questionClassFilter"),
+          ].forEach(classOptions);
+          renderStudentClassChecks();
+        }
+        function renderStudentClassChecks(selected = []) {
+          const box = $("studentClasses");
+          box.innerHTML = "<b>Assigned classes</b>";
+          classes
+            .filter((c) => String(c.active).toLowerCase() !== "false")
+            .forEach((c) => {
+              const label = document.createElement("label"),
+                cb = document.createElement("input");
+              cb.type = "checkbox";
+              cb.value = c.id;
+              cb.checked =
+                selected.includes(c.id) ||
+                (!editingStudent && c.id === DEFAULT_CLASS_ID);
+              label.append(cb, " ", c.title);
+              box.appendChild(label);
+            });
+        }
+        function renderPendingStudents() {
+          const body = $("pendingStudentList");
+          body.innerHTML = "";
+          $("pendingEmpty").textContent = pendingSupported
+            ? "No pending applications."
+            : "Pending applications are unavailable because the approval backend has not been deployed.";
+          $("pendingEmpty").classList.toggle(
+            "hidden",
+            pendingSupported && pendingStudents.length > 0,
+          );
+          pendingStudents.forEach((s) => {
+            const tr = document.createElement("tr");
+            const user = document.createElement("td");
+            user.textContent = s.username || "";
+            const info = document.createElement("td");
+            info.textContent = [
+              s.fullNameOnLicense || "",
+              s.licenseNumber || "",
+              s.dob || "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            const contact = document.createElement("td");
+            contact.textContent = s.preferredContact || "Not provided";
+            const assigned = document.createElement("td");
+            assigned.textContent = (s.classes || [])
+              .map((id) => {
+                const cls = classes.find((c) => String(c.id) === String(id));
+                return cls ? cls.title : id;
+              })
+              .join(", ");
+            const action = document.createElement("td");
+            const review = document.createElement("button");
+            review.textContent = "Review";
+            review.addEventListener("click", () => editStudent(s, true));
+            action.appendChild(review);
+            tr.append(user, info, contact, assigned, action);
+            body.appendChild(tr);
+          });
+        }
+        function renderStudents() {
+          const q = $("search").value.toLowerCase();
+          $("studentList").innerHTML = "";
+          students
+            .filter((s) => JSON.stringify(s).toLowerCase().includes(q))
+            .forEach((s) => {
+              const tr = document.createElement("tr");
+              tr.innerHTML = `<td>${s.username}</td><td><span class="pw hidden"></span><button class="secondary showpw">Show</button></td><td>${s.fullNameOnLicense || ""}<br>${s.licenseNumber || ""}</td><td class="contact"></td><td>${(s.classes || []).join(", ")}</td><td></td>`;
+              tr.querySelector(".pw").textContent = s.password || "";
+              tr.querySelector(".contact").textContent =
+                s.preferredContact || "Not provided";
+              tr.querySelector(".showpw").addEventListener("click", (e) => {
+                const pw = tr.querySelector(".pw");
+                pw.classList.toggle("hidden");
+                e.target.textContent = pw.classList.contains("hidden")
+                  ? "Show"
+                  : "Hide";
+              });
+              const edit = document.createElement("button");
+              edit.textContent = "Edit";
+              edit.addEventListener("click", () => editStudent(s));
+              const arch = document.createElement("button");
+              arch.textContent = "Archive";
+              arch.className = "danger";
+              arch.addEventListener("click", () => archiveStudent(s.username));
+              tr.lastChild.append(edit, arch);
+              $("studentList").appendChild(tr);
+            });
+        }
+        function editStudent(s, isPending = false) {
+          editingStudent = true;
+          reviewingPending = isPending;
+          $("studentUsername").value = s.username;
+          $("studentUsername").disabled = true;
+          $("studentPassword").value = s.password || "";
+          $("studentName").value = s.fullNameOnLicense || "";
+          $("studentLicense").value = s.licenseNumber || "";
+          $("studentContact").value = s.preferredContact || "";
+          $("studentDob").value = s.dob || "";
+          renderStudentClassChecks(s.classes || []);
+          $("studentFormTitle").textContent = isPending
+            ? "Review Pending Application"
+            : "Add / Edit Student";
+          $("saveStudent").textContent = isPending
+            ? "Add Profile"
+            : "Save Student";
+          if (isPending)
+            $("studentFormTitle").scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+        }
+        function clearStudent() {
+          editingStudent = false;
+          reviewingPending = false;
+          [
+            "studentUsername",
+            "studentPassword",
+            "studentName",
+            "studentLicense",
+            "studentContact",
+            "studentDob",
+          ].forEach((id) => ($(id).value = ""));
+          $("studentUsername").disabled = false;
+          $("studentFormTitle").textContent = "Add / Edit Student";
+          $("saveStudent").textContent = "Save Student";
+          renderStudentClassChecks();
+        }
+        async function saveStudent() {
+          const wasPending = reviewingPending;
+          const classes = [
+            ...$("studentClasses").querySelectorAll("input:checked"),
+          ].map((i) => i.value);
+          const body = {
+            username: $("studentUsername").value.trim(),
+            password: $("studentPassword").value,
+            fullNameOnLicense: $("studentName").value.trim(),
+            licenseNumber: $("studentLicense").value.trim(),
+            preferredContact: $("studentContact").value.trim(),
+            dob: $("studentDob").value,
+            classes,
+          };
+          const res = await apiPost(
+            editingStudent ? "updateStudent" : "addStudent",
+            body,
+          );
+          msg(
+            "studentMsg",
+            res.ok
+              ? wasPending
+                ? "Profile added and activated"
+                : "Student saved"
+              : res.error || "Save failed",
+            res.ok,
+          );
+          if (res.ok) {
+            clearStudent();
+            loadAll();
+          }
+        }
+        async function archiveStudent(username) {
+          if (!confirm(`Archive ${username}?`)) return;
+          await apiPost("archiveStudent", { username });
+          loadAll();
+        }
+        async function approveStudent(username) {
+          if (!confirm(`Approve ${username}?`)) return;
+          const res = await apiPost("approveStudent", { username });
+          msg(
+            "studentMsg",
+            res.ok ? "Student approved" : res.error || "Approval failed",
+            res.ok,
+          );
+          if (res.ok) loadAll();
+        }
+        function renderClasses() {
+          $("classList").innerHTML = "";
+          classes.forEach((c) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td><b>${c.title}</b><br>${c.id}<br>${c.description || ""}</td><td>Pass ${c.passingScore}% · Watch ${c.requiredWatchPercent} · Sort ${c.sortOrder} · ${c.active}</td><td></td>`;
+            const e = document.createElement("button");
+            e.textContent = "Edit";
+            e.addEventListener("click", () => {
+              $("classId").value = c.id;
+              $("classTitle").value = c.title;
+              $("classDesc").value = c.description || "";
+              $("classPass").value = c.passingScore || 80;
+              $("classWatch").value = c.requiredWatchPercent || 0.9;
+              $("classSort").value = c.sortOrder || 0;
+              $("classActive").checked =
+                String(c.active).toLowerCase() !== "false";
+            });
+            const d = document.createElement("button");
+            d.textContent = "Deactivate";
+            d.className = "danger";
+            d.addEventListener("click", async () => {
+              await apiPost("deactivateClass", { id: c.id });
+              loadAll();
+            });
+            tr.lastChild.append(e, d);
+            $("classList").appendChild(tr);
+          });
+        }
+        async function saveClass() {
+          await apiPost("saveClass", {
+            id: $("classId").value || undefined,
+            title: $("classTitle").value,
+            description: $("classDesc").value,
+            passingScore: Number($("classPass").value || 80),
+            requiredWatchPercent: Number($("classWatch").value || 0.9),
+            sortOrder: Number($("classSort").value || 0),
+            active: $("classActive").checked,
+          });
+          loadAll();
+        }
+        function renderModules() {
+          $("moduleList").innerHTML = "";
+          modules.forEach((m) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td><b>${m.title}</b><br>${m.classId} · ${m.youtubeId}</td><td>${m.active}</td><td></td>`;
+            const e = document.createElement("button");
+            e.textContent = "Edit";
+            e.addEventListener("click", () => {
+              $("moduleId").value = m.id;
+              $("moduleClass").value = m.classId;
+              $("moduleTitle").value = m.title;
+              $("moduleYoutube").value = m.youtubeId;
+              $("moduleSort").value = m.sortOrder;
+              $("moduleWatch").value = m.requiredWatchPercent;
+              $("moduleActive").checked =
+                String(m.active).toLowerCase() !== "false";
+            });
+            const d = document.createElement("button");
+            d.textContent = "Deactivate";
+            d.className = "danger";
+            d.addEventListener("click", async () => {
+              await apiPost("deactivateModule", { id: m.id });
+              loadAll();
+            });
+            tr.lastChild.append(e, d);
+            $("moduleList").appendChild(tr);
+          });
+        }
+        async function saveModule() {
+          await apiPost("saveModule", {
+            id: $("moduleId").value || undefined,
+            classId: $("moduleClass").value,
+            title: $("moduleTitle").value,
+            youtubeId: $("moduleYoutube").value,
+            sortOrder: Number($("moduleSort").value || 0),
+            requiredWatchPercent: Number($("moduleWatch").value || 0.9),
+            active: $("moduleActive").checked,
+          });
+          loadAll();
+        }
+        function renderQuestions() {
+          const f = $("questionClassFilter").value;
+          $("questionList").innerHTML = "";
+          questions
+            .filter((q) => !f || q.classId === f)
+            .forEach((q) => {
+              const tr = document.createElement("tr");
+              tr.innerHTML = `<td><b>${q.question}</b><br>${q.classId}</td><td>${q.active}</td><td></td>`;
+              const e = document.createElement("button");
+              e.textContent = "Edit";
+              e.addEventListener("click", () => {
+                [
+                  "questionId",
+                  "questionText",
+                  "optionA",
+                  "optionB",
+                  "optionC",
+                  "optionD",
+                  "correctIndex",
+                  "questionSort",
+                ].forEach((id) => {});
+                $("questionId").value = q.id;
+                $("questionClass").value = q.classId;
+                $("questionText").value = q.question;
+                $("optionA").value = q.optionA;
+                $("optionB").value = q.optionB;
+                $("optionC").value = q.optionC;
+                $("optionD").value = q.optionD;
+                $("correctIndex").value = q.correctIndex;
+                $("questionSort").value = q.sortOrder;
+                $("questionActive").checked =
+                  String(q.active).toLowerCase() !== "false";
+              });
+              const d = document.createElement("button");
+              d.textContent = "Deactivate";
+              d.className = "danger";
+              d.addEventListener("click", async () => {
+                await apiPost("deactivateTestQuestion", { id: q.id });
+                loadAll();
+              });
+              tr.lastChild.append(e, d);
+              $("questionList").appendChild(tr);
+            });
+        }
+        async function saveQuestion() {
+          await apiPost("saveTestQuestion", {
+            id: $("questionId").value || undefined,
+            classId: $("questionClass").value,
+            question: $("questionText").value,
+            optionA: $("optionA").value,
+            optionB: $("optionB").value,
+            optionC: $("optionC").value,
+            optionD: $("optionD").value,
+            correctIndex: Number($("correctIndex").value || 0),
+            sortOrder: Number($("questionSort").value || 0),
+            active: $("questionActive").checked,
+          });
+          loadAll();
+        }
+        $("loginBtn").addEventListener("click", async () => {
+          const data = await apiGet("adminLogin", {
+            username: $("adminUser").value,
+            password: $("adminPass").value,
+          });
+          if (!data.ok) {
+            msg("loginMsg", "Login failed", false);
+            return;
+          }
+          $("loginCard").classList.add("hidden");
+          $("adminPanel").classList.remove("hidden");
+          loadAll();
+        });
+        document.querySelectorAll(".tabs button").forEach((b) =>
+          b.addEventListener("click", () => {
+            document
+              .querySelectorAll(".tab")
+              .forEach((t) => t.classList.add("hidden"));
+            $(b.dataset.tab).classList.remove("hidden");
+          }),
+        );
+        $("search").addEventListener("input", renderStudents);
+        $("saveStudent").addEventListener("click", saveStudent);
+        $("resetStudent").addEventListener("click", clearStudent);
+        $("saveClass").addEventListener("click", saveClass);
+        $("saveModule").addEventListener("click", saveModule);
+        $("saveQuestion").addEventListener("click", saveQuestion);
+        $("questionClassFilter").addEventListener("change", renderQuestions);
+      });
+    </script>
+  </body>
 </html>

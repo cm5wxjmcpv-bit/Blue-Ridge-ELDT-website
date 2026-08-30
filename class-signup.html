@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Request Training</title>
+  <script src="config.js?v=20260730-contact1" defer></script>
+  <script src="frontend-api.js" defer></script>
+  <style>
+    :root{--navy:#17324d;--navy-dark:#10263a;--green:#2f8f4e;--bg:#eef2f6;--card:#fff;--muted:#5b6570;--border:#d8e0e8}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:var(--bg);color:#1f2937}
+    .top{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:white;border-bottom:4px solid var(--green);padding:22px}
+    .wrap{max-width:760px;margin:0 auto;padding:28px 20px}
+    .card{background:white;border:1px solid var(--border);border-radius:18px;padding:24px;box-shadow:0 10px 30px rgba(16,38,58,.10)}
+    input,select{width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;margin:6px 0 16px;font-size:16px}
+    fieldset{border:0;padding:0;margin:0}
+    legend{margin-bottom:6px}
+    .date-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    @media(max-width:560px){.date-grid{grid-template-columns:1fr}}
+    button,a.btn{display:inline-flex;background:var(--green);color:white;border:0;border-radius:12px;padding:12px 16px;font-weight:800;text-decoration:none;cursor:pointer}
+    button:disabled{cursor:wait;opacity:.7}
+    .small{color:var(--muted)}
+    .error{color:#b42318}
+    .success{color:green}
+    .confirmation-modal{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(16,38,58,.55)}
+    .confirmation-modal[hidden]{display:none}
+    .confirmation-card{width:min(100%,520px);background:white;border-radius:18px;padding:26px;box-shadow:0 24px 70px rgba(16,38,58,.28);text-align:center}
+    .confirmation-card h2{margin:0 0 12px;color:var(--navy-dark)}
+    .confirmation-card p{margin:0 0 20px;line-height:1.6}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="wrap" style="padding:0">
+      <h1>Martinsville CDL Program</h1>
+      <p>Request Training</p>
+    </div>
+  </div>
+  <main class="wrap">
+    <form class="card" id="requestForm">
+      <h2>Training Request</h2>
+      <p class="small">Create your login and submit the information below. Your account will remain inactive until an administrator approves it.</p>
+      <label>Choose a username<input id="username" autocomplete="username" required></label>
+      <label>Create a password<input id="password" type="password" autocomplete="new-password" required></label>
+      <label>Confirm password<input id="confirmPassword" type="password" autocomplete="new-password" required></label>
+      <label>Full name as shown on license<input id="fullNameOnLicense" autocomplete="name" required></label>
+      <label>License number<input id="licenseNumber" required></label>
+      <label>Email address or cell phone number <span class="small">(email preferred)</span><input id="preferredContact" type="text" autocomplete="email" placeholder="name@example.com or (276) 555-0123" required></label>
+      <fieldset><legend>Date of birth</legend><div class="date-grid"><label>Year<select id="dobYear" required><option value="">Year</option></select></label><label>Month<select id="dobMonth" required><option value="">Month</option></select></label><label>Day<select id="dobDay" required><option value="">Day</option></select></label></div></fieldset>
+      <label>Requested training<select id="requestedClassId" required></select></label>
+      <button id="submitBtn" type="submit">Submit Request</button>
+      <a class="btn" style="background:#17324d" href="index.html">Back to Login</a>
+      <div id="msg" style="margin-top:14px"></div>
+    </form>
+  </main>
+  <div id="confirmationModal" class="confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle" hidden>
+    <div class="confirmation-card">
+      <h2 id="confirmationTitle">Request submitted</h2>
+      <p>Your request has been received. You will be contacted by text or email when your profile has been created and you can start training.</p>
+      <button id="confirmationClose" type="button">OK</button>
+    </div>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded",()=>{
+      const select=document.getElementById("requestedClassId");
+      const msg=document.getElementById("msg");
+      const contactInput=document.getElementById("preferredContact");
+      const submitBtn=document.getElementById("submitBtn");
+      const confirmationModal=document.getElementById("confirmationModal");
+      const confirmationClose=document.getElementById("confirmationClose");
+      function validContact(value){
+        const contact=String(value||"").trim();
+        const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+        const digits=contact.replace(/\D/g,"");
+        const phoneOk=/^\+?[\d\s().-]+$/.test(contact)&&digits.length>=10&&digits.length<=15;
+        return emailOk||phoneOk;
+      }
+      function showConfirmation(){
+        confirmationModal.hidden=false;
+        confirmationClose.focus();
+      }
+      function hideConfirmation(){
+        confirmationModal.hidden=true;
+        document.getElementById("username").focus();
+      }
+      function render(classes){
+        select.innerHTML='<option value="">Select training</option>';
+        classes.filter(c=>String(c.active).toLowerCase()!=="false").forEach(c=>{
+          const o=document.createElement("option");
+          o.value=c.id;
+          o.textContent=String(c.id)===String(DEFAULT_CLASS_ID)?"Initial Class B or A":c.title;
+          select.appendChild(o);
+        });
+      }
+      function populateDays(){
+        const previous=document.getElementById("dobDay").value;
+        const year=Number(document.getElementById("dobYear").value)||2000;
+        const month=Number(document.getElementById("dobMonth").value);
+        const days=month?new Date(year,month,0).getDate():31;
+        const day=document.getElementById("dobDay");
+        day.innerHTML='<option value="">Day</option>';
+        for(let d=1;d<=days;d++){
+          const option=document.createElement("option");
+          option.value=String(d).padStart(2,"0");
+          option.textContent=d;
+          day.appendChild(option);
+        }
+        if(Number(previous)<=days)day.value=previous;
+      }
+      function populateDateOptions(){
+        const year=document.getElementById("dobYear");
+        const month=document.getElementById("dobMonth");
+        const currentYear=new Date().getFullYear();
+        for(let y=currentYear;y>=1900;y--){
+          const option=document.createElement("option");
+          option.value=String(y);
+          option.textContent=y;
+          year.appendChild(option);
+        }
+        ["January","February","March","April","May","June","July","August","September","October","November","December"].forEach((name,index)=>{
+          const option=document.createElement("option");
+          option.value=String(index+1).padStart(2,"0");
+          option.textContent=name;
+          month.appendChild(option);
+        });
+        year.addEventListener("change",populateDays);
+        month.addEventListener("change",populateDays);
+        populateDays();
+      }
+      async function load(){
+        try{
+          const data=await apiListClasses(true);
+          render((data.classes&&data.classes.length)?data.classes:DEFAULT_CLASSES);
+        }catch(err){
+          console.error(err);
+          render(DEFAULT_CLASSES);
+        }
+      }
+      document.getElementById("requestForm").addEventListener("submit",async(event)=>{
+        event.preventDefault();
+        const requestForm=event.currentTarget;
+        if(!requestForm.reportValidity())return;
+        const confirmPassword=document.getElementById("confirmPassword").value;
+        const dobYear=document.getElementById("dobYear").value;
+        const dobMonth=document.getElementById("dobMonth").value;
+        const dobDay=document.getElementById("dobDay").value;
+        const preferredContact=contactInput.value.trim();
+        const payload={
+          username:document.getElementById("username").value.trim(),
+          password:document.getElementById("password").value,
+          fullNameOnLicense:document.getElementById("fullNameOnLicense").value.trim(),
+          licenseNumber:document.getElementById("licenseNumber").value.trim(),
+          preferredContact,
+          dob:dobYear&&dobMonth&&dobDay?[dobYear,dobMonth,dobDay].join("-"):"",
+          requestedClassId:select.value
+        };
+        if(!payload.username||!payload.password||!confirmPassword||!payload.fullNameOnLicense||!payload.licenseNumber||!payload.preferredContact||!payload.dob||!payload.requestedClassId){
+          msg.className="error";
+          msg.textContent="Please complete all required fields.";
+          return;
+        }
+        if(!validContact(payload.preferredContact)){
+          contactInput.setCustomValidity("Enter a valid email address or cell phone number.");
+          contactInput.reportValidity();
+          return;
+        }
+        if(payload.password!==confirmPassword){
+          msg.className="error";
+          msg.textContent="The passwords do not match.";
+          return;
+        }
+        submitBtn.disabled=true;
+        submitBtn.textContent="Submitting…";
+        msg.className="";
+        msg.textContent="Submitting…";
+        try{
+          const res=await apiSubmitSignupRequest(payload);
+          const profileCreated=!!(res&&res.ok&&res.pendingApproval===true);
+          msg.className=profileCreated?"success":"error";
+          msg.textContent=profileCreated?"Request submitted. You will be contacted when your profile is ready.":(res&&res.ok?"Your request was logged, but the student profile was not created. Please contact the administrator.":(res.error||"Unable to submit request."));
+          if(profileCreated){
+            showConfirmation();
+            requestForm.reset();
+          }
+        }catch(err){
+          console.error(err);
+          msg.className="error";
+          msg.textContent="Unable to submit request.";
+        }finally{
+          submitBtn.disabled=false;
+          submitBtn.textContent="Submit Request";
+        }
+      });
+      contactInput.addEventListener("input",()=>contactInput.setCustomValidity(""));
+      confirmationClose.addEventListener("click",hideConfirmation);
+      populateDateOptions();
+      render(DEFAULT_CLASSES);
+      load();
+    });
+  </script>
+</body>
+</html>
