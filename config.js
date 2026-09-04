@@ -32,44 +32,30 @@ const USERS = [
 
 // ==============================
 // DEFAULT CLASS A/B MODULES
-// Restored from the original Blue Ridge site.
+// Matches the current Martinsville CDL curriculum.
+// The live Google Sheet remains authoritative.
 // ==============================
 
 const MODULES = [
   {
     id: 1,
-    title: "Intro (5 mins)",
-    youtubeId: "BGlWc4pvXSQ"
+    title: "Module 1 — Introduction",
+    youtubeId: "-qXt8htJ9h4"
   },
   {
     id: 2,
-    title: "Module 1 (18.5 mins)",
-    youtubeId: "PKEVCzlIo6o"
+    title: "Module 2 — Safety & Inspection",
+    youtubeId: "RS4K5FCL988"
   },
   {
     id: 3,
-    title: "Module 2 (22.08 mins)",
-    youtubeId: "pZPTGA1-CWg"
+    title: "Module 3 — Basic Operations",
+    youtubeId: "TLeq0WikSmU"
   },
   {
     id: 4,
-    title: "Module 3 (14.10 mins)",
-    youtubeId: "Qa5zqYHRqso"
-  },
-  {
-    id: 5,
-    title: "Module 4 (12 mins)",
-    youtubeId: "2uCIkj693I8"
-  },
-  {
-    id: 6,
-    title: "Module 5 (25.25 mins)",
-    youtubeId: "Od5tJW7NZK8"
-  },
-  {
-    id: 7,
-    title: "Module 6 (7.41 mins)",
-    youtubeId: "Ch9WP4p5vGs"
+    title: "Module 4 — Advanced Driving",
+    youtubeId: "cMML4tQdVvY"
   }
 ];
 
