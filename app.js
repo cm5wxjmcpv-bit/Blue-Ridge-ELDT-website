@@ -2,7 +2,6 @@
 // Google Apps Script backend source
 
 const SPREADSHEET_ID = "1-aXjOP2bmhasz2E4KbyMg0ANNUrbEL7wJ41YWJVt0go";
-
 const STATUS_SHEET = "Status";
 const STUDENTS_SHEET = "Students";
 const ADMINS_SHEET = "Admins";
@@ -13,11 +12,10 @@ const STUDENT_CLASSES_SHEET = "StudentClasses";
 const PROGRESS_SHEET = "Progress";
 const TEST_RESULTS_SHEET = "TestResults";
 const SIGNUP_REQUESTS_SHEET = "SignupRequests";
-
 const DEFAULT_CLASS_ID = "class-a-b";
-// Leave blank to disable email notifications. Add a business notification email later if desired.
 const ADMIN_EMAIL = "";
-const BACKEND_VERSION = "2026-09-04-blue-ridge-v1";
+const BACKEND_VERSION = "2026-09-04-blue-ridge-v2";
+const AUTH_TTL_SECONDS = 21600;
 
 const DEFAULT_CLASSES = [
   [DEFAULT_CLASS_ID, "Class A and B", "CDL Class A/B ELDT training", 80, 0.9, 1, true],
@@ -28,7 +26,6 @@ const DEFAULT_CLASSES = [
   ["hazmat", "Hazmat Endorsement", "Hazmat endorsement training", 80, 0.9, 6, true]
 ];
 
-// Restored from the Blue Ridge repository as it existed before the city-site copy.
 const DEFAULT_MODULES = [
   ["1", DEFAULT_CLASS_ID, "Intro (5 mins)", "BGlWc4pvXSQ", 1, 0.9, true],
   ["2", DEFAULT_CLASS_ID, "Module 1 (18.5 mins)", "PKEVCzlIo6o", 2, 0.9, true],
@@ -43,22 +40,52 @@ function doGet(e) {
   try {
     const p = (e && e.parameter) || {};
     const action = String(p.action || "").toLowerCase();
-    const actions = {
-      validatelogin: function() { return validateLogin_(p.username, p.password); },
-      adminlogin: function() { return adminLogin_(p.username, p.password); },
-      liststudents: function() { return listStudents_(); },
-      getversion: function() { return { ok: true, version: BACKEND_VERSION }; },
-      getstatus: function() { return getStatus_(p.username, p.classId); },
-      getstudentdashboard: function() { return getStudentDashboard_(p.username); },
-      listclasses: function() { return listClasses_(p.activeOnly); },
-      listmodules: function() { return listModules_(p.classId, p.activeOnly); },
-      listtestquestions: function() { return listTestQuestions_(p.classId, p.activeOnly); },
-      setupsheets: function() { return setupSheets_(); },
-      migrateexistingdatatoclassa: function() {
-        return { ok: true, message: "Legacy Status data maps to the default Class A/B course at read time." };
-      }
-    };
-    return json_((actions[action] || unknownAction_)());
+    let result;
+
+    switch (action) {
+      case "validatelogin":
+        result = validateLogin_(p.username, p.password);
+        break;
+      case "adminlogin":
+        result = adminLogin_(p.username, p.password);
+        break;
+      case "liststudents":
+        requireAdminToken_(p.adminToken);
+        result = listStudents_();
+        break;
+      case "getversion":
+        result = { ok: true, version: BACKEND_VERSION };
+        break;
+      case "getstatus":
+        requireStudentToken_(p.studentToken, p.username);
+        result = getStatus_(p.username, p.classId);
+        break;
+      case "getstudentdashboard":
+        requireStudentToken_(p.studentToken, p.username);
+        result = getStudentDashboard_(p.username);
+        break;
+      case "listclasses":
+        result = listClasses_(p.activeOnly);
+        break;
+      case "listmodules":
+        result = listModules_(p.classId, p.activeOnly);
+        break;
+      case "listtestquestions":
+        requireAnyToken_(p.studentToken, p.adminToken);
+        result = listTestQuestions_(p.classId, p.activeOnly);
+        break;
+      case "setupsheets":
+        requireAdminToken_(p.adminToken);
+        result = setupSheets_();
+        break;
+      case "migrateexistingdatatoclassa":
+        requireAdminToken_(p.adminToken);
+        result = { ok: true, message: "Legacy Status data maps to the default Class A/B course at read time." };
+        break;
+      default:
+        result = { ok: false, error: "Unknown action" };
+    }
+    return json_(result);
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message ? err.message : err) });
   }
@@ -68,33 +95,102 @@ function doPost(e) {
   try {
     const data = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     const action = String(data.action || "").toLowerCase();
-    const actions = {
-      addstudent: function() { return addStudent_(data); },
-      updatestudent: function() { return updateStudent_(data); },
-      deletestudent: function() { return archiveStudent_(data.username); },
-      archivestudent: function() { return archiveStudent_(data.username); },
-      approvestudent: function() { return approveStudent_(data.username); },
-      logmodule: function() { return logModule_(data.username, data.classId, data.moduleId); },
-      logtest: function() { return logTest_(data.username, data.classId, data.complete, data.score); },
-      saveclass: function() { return saveClass_(data); },
-      deleteclass: function() { return deactivateById_(CLASSES_SHEET, data.id); },
-      deactivateclass: function() { return deactivateById_(CLASSES_SHEET, data.id); },
-      savemodule: function() { return saveModule_(data); },
-      deletemodule: function() { return deactivateById_(MODULES_SHEET, data.id); },
-      deactivatemodule: function() { return deactivateById_(MODULES_SHEET, data.id); },
-      savetestquestion: function() { return saveTestQuestion_(data); },
-      deletetestquestion: function() { return deactivateById_(TEST_QUESTIONS_SHEET, data.id); },
-      deactivatetestquestion: function() { return deactivateById_(TEST_QUESTIONS_SHEET, data.id); },
-      submitsignuprequest: function() { return submitSignupRequest_(data); }
-    };
-    return json_((actions[action] || unknownAction_)());
+    let result;
+
+    switch (action) {
+      case "addstudent":
+        requireAdminToken_(data.adminToken);
+        result = addStudent_(data);
+        break;
+      case "updatestudent":
+        requireAdminToken_(data.adminToken);
+        result = updateStudent_(data);
+        break;
+      case "deletestudent":
+      case "archivestudent":
+        requireAdminToken_(data.adminToken);
+        result = archiveStudent_(data.username);
+        break;
+      case "approvestudent":
+        requireAdminToken_(data.adminToken);
+        result = approveStudent_(data.username);
+        break;
+      case "logmodule":
+        requireStudentToken_(data.studentToken, data.username);
+        result = logModule_(data.username, data.classId, data.moduleId);
+        break;
+      case "logtest":
+        requireStudentToken_(data.studentToken, data.username);
+        result = logTest_(data.username, data.classId, data.complete, data.score);
+        break;
+      case "saveclass":
+        requireAdminToken_(data.adminToken);
+        result = saveClass_(data);
+        break;
+      case "deleteclass":
+      case "deactivateclass":
+        requireAdminToken_(data.adminToken);
+        result = deactivateById_(CLASSES_SHEET, data.id);
+        break;
+      case "savemodule":
+        requireAdminToken_(data.adminToken);
+        result = saveModule_(data);
+        break;
+      case "deletemodule":
+      case "deactivatemodule":
+        requireAdminToken_(data.adminToken);
+        result = deactivateById_(MODULES_SHEET, data.id);
+        break;
+      case "savetestquestion":
+        requireAdminToken_(data.adminToken);
+        result = saveTestQuestion_(data);
+        break;
+      case "deletetestquestion":
+      case "deactivatetestquestion":
+        requireAdminToken_(data.adminToken);
+        result = deactivateById_(TEST_QUESTIONS_SHEET, data.id);
+        break;
+      case "submitsignuprequest":
+        result = submitSignupRequest_(data);
+        break;
+      default:
+        result = { ok: false, error: "Unknown action" };
+    }
+    return json_(result);
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message ? err.message : err) });
   }
 }
 
-function unknownAction_() {
-  return { ok: false, error: "Unknown action" };
+function issueToken_(kind, username) {
+  const token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  CacheService.getScriptCache().put("auth:" + kind + ":" + token, String(username || ""), AUTH_TTL_SECONDS);
+  return token;
+}
+
+function tokenUser_(kind, token) {
+  if (!token) return "";
+  return CacheService.getScriptCache().get("auth:" + kind + ":" + String(token)) || "";
+}
+
+function requireAdminToken_(token) {
+  const username = tokenUser_("admin", token);
+  if (!username) throw new Error("Admin session expired. Please log in again.");
+  return username;
+}
+
+function requireStudentToken_(token, username) {
+  const tokenUsername = tokenUser_("student", token);
+  if (!tokenUsername || String(tokenUsername).trim().toLowerCase() !== String(username || "").trim().toLowerCase()) {
+    throw new Error("Student session expired. Please log in again.");
+  }
+  return tokenUsername;
+}
+
+function requireAnyToken_(studentToken, adminToken) {
+  if (tokenUser_("admin", adminToken)) return true;
+  if (tokenUser_("student", studentToken)) return true;
+  throw new Error("Session expired. Please log in again.");
 }
 
 function ss_() {
@@ -134,12 +230,9 @@ function rowObjs_(name) {
   const headers = headers_(sheet);
   const lastRow = sheet.getLastRow();
   if (!headers.length || lastRow < 2) return [];
-  const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  return values.map(function(row, index) {
+  return sheet.getRange(2, 1, lastRow - 1, headers.length).getValues().map(function(row, index) {
     const obj = {};
-    headers.forEach(function(header, col) {
-      obj[header] = row[col];
-    });
+    headers.forEach(function(header, col) { obj[header] = row[col]; });
     return { row: index + 2, obj: obj };
   });
 }
@@ -202,13 +295,9 @@ function setupSheets_() {
 
 function seedRows_(sheetName, rows) {
   const existing = {};
-  rowObjs_(sheetName).forEach(function(row) {
-    existing[String(row.obj.id)] = true;
-  });
+  rowObjs_(sheetName).forEach(function(row) { existing[String(row.obj.id)] = true; });
   rows.forEach(function(row) {
-    if (!existing[String(row[0])]) {
-      sh_(sheetName).appendRow(row.concat([new Date()]));
-    }
+    if (!existing[String(row[0])]) sh_(sheetName).appendRow(row.concat([new Date()]));
   });
 }
 
@@ -222,17 +311,13 @@ function findStudent_(username) {
 
 function requireActiveStudent_(username) {
   const student = findStudent_(username);
-  if (!student || !active_(student.obj.active)) {
-    throw new Error("Student is archived, inactive, or not found");
-  }
+  if (!student || !active_(student.obj.active)) throw new Error("Student is archived, inactive, or not found");
   return student;
 }
 
 function classById_(classId, requireActive) {
   const id = String(classId || DEFAULT_CLASS_ID);
-  const row = rowObjs_(CLASSES_SHEET).find(function(item) {
-    return String(item.obj.id) === id;
-  });
+  const row = rowObjs_(CLASSES_SHEET).find(function(item) { return String(item.obj.id) === id; });
   if (!row) throw new Error("Class not found");
   if (requireActive && !active_(row.obj.active)) throw new Error("Class is inactive");
   const obj = row.obj;
@@ -253,17 +338,13 @@ function assignmentRows_(username) {
 function assignedClassIds_(username) {
   const rows = assignmentRows_(username);
   if (!rows.length) return [DEFAULT_CLASS_ID];
-  return rows.filter(function(row) { return active_(row.obj.active); }).map(function(row) {
-    return String(row.obj.classId);
-  });
+  return rows.filter(function(row) { return active_(row.obj.active); }).map(function(row) { return String(row.obj.classId); });
 }
 
 function requireAssignedClass_(username, classId) {
   requireActiveStudent_(username);
   const id = String(classId || DEFAULT_CLASS_ID);
-  if (assignedClassIds_(username).indexOf(id) === -1) {
-    throw new Error("Student is not assigned to this class");
-  }
+  if (assignedClassIds_(username).indexOf(id) === -1) throw new Error("Student is not assigned to this class");
   return classById_(id, true);
 }
 
@@ -276,11 +357,8 @@ function listClasses_(activeOnly) {
     obj.sortOrder = Number(obj.sortOrder || 0);
     obj.active = active_(obj.active);
     return obj;
-  }).filter(function(obj) {
-    return !onlyActive || obj.active;
-  }).sort(function(a, b) {
-    return a.sortOrder - b.sortOrder;
-  });
+  }).filter(function(obj) { return !onlyActive || obj.active; })
+    .sort(function(a, b) { return a.sortOrder - b.sortOrder; });
   return { ok: true, classes: classes };
 }
 
@@ -295,11 +373,8 @@ function listModules_(classId, activeOnly) {
     obj.requiredWatchPercent = normalizeWatchPercent_(obj.requiredWatchPercent);
     obj.active = active_(obj.active);
     return obj;
-  }).filter(function(obj) {
-    return (!id || obj.classId === id) && (!onlyActive || obj.active);
-  }).sort(function(a, b) {
-    return a.sortOrder - b.sortOrder;
-  });
+  }).filter(function(obj) { return (!id || obj.classId === id) && (!onlyActive || obj.active); })
+    .sort(function(a, b) { return a.sortOrder - b.sortOrder; });
   return { ok: true, modules: modules };
 }
 
@@ -314,11 +389,8 @@ function listTestQuestions_(classId, activeOnly) {
     obj.sortOrder = Number(obj.sortOrder || 0);
     obj.active = active_(obj.active);
     return obj;
-  }).filter(function(obj) {
-    return (!id || obj.classId === id) && (!onlyActive || obj.active);
-  }).sort(function(a, b) {
-    return a.sortOrder - b.sortOrder;
-  });
+  }).filter(function(obj) { return (!id || obj.classId === id) && (!onlyActive || obj.active); })
+    .sort(function(a, b) { return a.sortOrder - b.sortOrder; });
   return { ok: true, questions: questions };
 }
 
@@ -328,17 +400,17 @@ function validateLogin_(username, password) {
   if (!student || String(student.obj.password || "") !== String(password) || !active_(student.obj.active)) {
     return { ok: false, error: "Invalid username or password" };
   }
-  return { ok: true, username: student.obj.username };
+  return { ok: true, username: student.obj.username, token: issueToken_("student", student.obj.username) };
 }
 
 function adminLogin_(username, password) {
   if (!username || !password) return { ok: false, error: "Missing username or password" };
   const key = String(username).trim().toLowerCase();
   const admin = rowObjs_(ADMINS_SHEET).find(function(row) {
-    return String(row.obj.username || "").trim().toLowerCase() === key &&
-      String(row.obj.password || "") === String(password);
+    return String(row.obj.username || "").trim().toLowerCase() === key && String(row.obj.password || "") === String(password);
   });
-  return admin ? { ok: true, username: admin.obj.username } : { ok: false, error: "Invalid admin login" };
+  if (!admin) return { ok: false, error: "Invalid admin login" };
+  return { ok: true, username: admin.obj.username, token: issueToken_("admin", admin.obj.username) };
 }
 
 function legacyStatus_(username) {
@@ -362,39 +434,29 @@ function getStatus_(username, classId) {
   const progressRows = rowObjs_(PROGRESS_SHEET);
   const testRows = rowObjs_(TEST_RESULTS_SHEET);
   const legacy = id === DEFAULT_CLASS_ID ? legacyStatus_(username) : null;
+  const key = String(username || "").trim().toLowerCase();
 
   const statusModules = modules.map(function(module) {
     const progressComplete = progressRows.some(function(row) {
-      return String(row.obj.username || "").trim().toLowerCase() === String(username || "").trim().toLowerCase() &&
-        String(row.obj.classId) === id &&
-        String(row.obj.moduleId) === String(module.id) &&
-        complete_(row.obj.complete);
+      return String(row.obj.username || "").trim().toLowerCase() === key &&
+        String(row.obj.classId) === id && String(row.obj.moduleId) === String(module.id) && complete_(row.obj.complete);
     });
-    const legacyComplete = legacy ? legacy.modules["m" + module.id] : false;
     return {
-      id: String(module.id),
-      classId: id,
-      title: module.title,
-      youtubeId: module.youtubeId,
+      id: String(module.id), classId: id, title: module.title, youtubeId: module.youtubeId,
       sortOrder: Number(module.sortOrder || 0),
       requiredWatchPercent: normalizeWatchPercent_(module.requiredWatchPercent || cls.requiredWatchPercent),
       active: true,
-      complete: !!progressComplete || !!legacyComplete
+      complete: !!progressComplete || !!(legacy && legacy.modules["m" + module.id])
     };
   });
 
   const matches = testRows.filter(function(row) {
-    return String(row.obj.username || "").trim().toLowerCase() === String(username || "").trim().toLowerCase() &&
-      String(row.obj.classId) === id;
+    return String(row.obj.username || "").trim().toLowerCase() === key && String(row.obj.classId) === id;
   });
   const latest = matches.length ? matches[matches.length - 1].obj : null;
 
   return {
-    ok: true,
-    username: username,
-    classId: id,
-    classInfo: cls,
-    modules: statusModules,
+    ok: true, username: username, classId: id, classInfo: cls, modules: statusModules,
     testComplete: latest ? complete_(latest.complete) : (legacy ? legacy.testComplete : false),
     testScore: latest ? latest.score : (legacy ? legacy.testScore : ""),
     testPassed: latest ? complete_(latest.passed) : (legacy ? legacy.testComplete : false)
@@ -416,33 +478,26 @@ function getStudentDashboard_(username) {
 
 function listStudents_() {
   ensureHeaders_(STUDENTS_SHEET, ["username", "password", "updatedAt", "fullNameOnLicense", "licenseNumber", "dob", "active", "archivedAt", "preferredContact"]);
-  const studentsAll = rowObjs_(STUDENTS_SHEET).map(function(row) {
+  const all = rowObjs_(STUDENTS_SHEET).map(function(row) {
     const obj = row.obj;
     obj.classes = assignedClassIds_(obj.username);
     return obj;
   });
-  const students = studentsAll.filter(function(obj) {
-    return active_(obj.active);
-  });
-  const pendingStudents = studentsAll.filter(function(obj) {
-    return !active_(obj.active) && !String(obj.archivedAt || "").trim();
-  });
-  return { ok: true, students: students, pendingStudents: pendingStudents, backendVersion: BACKEND_VERSION };
+  return {
+    ok: true,
+    students: all.filter(function(obj) { return active_(obj.active); }),
+    pendingStudents: all.filter(function(obj) { return !active_(obj.active) && !String(obj.archivedAt || "").trim(); }),
+    backendVersion: BACKEND_VERSION
+  };
 }
 
 function addStudent_(data) {
   if (!data.username || !data.password) return { ok: false, error: "Missing username or password" };
   if (findStudent_(data.username)) return { ok: false, error: "Username already exists or is archived" };
   appendObject_(STUDENTS_SHEET, {
-    username: String(data.username).trim(),
-    password: data.password,
-    updatedAt: new Date(),
-    fullNameOnLicense: data.fullNameOnLicense || "",
-    licenseNumber: data.licenseNumber || "",
-    dob: data.dob || "",
-    active: true,
-    archivedAt: "",
-    preferredContact: data.preferredContact || ""
+    username: String(data.username).trim(), password: data.password, updatedAt: new Date(),
+    fullNameOnLicense: data.fullNameOnLicense || "", licenseNumber: data.licenseNumber || "",
+    dob: data.dob || "", active: true, archivedAt: "", preferredContact: data.preferredContact || ""
   });
   saveAssignments_(data.username, data.classes || [DEFAULT_CLASS_ID]);
   ensureStatusRow_(data.username);
@@ -492,33 +547,21 @@ function archiveStudent_(username) {
 
 function saveAssignments_(username, classIds) {
   const sheet = sh_(STUDENT_CLASSES_SHEET);
-  const key = String(username || "").trim().toLowerCase();
   const rows = assignmentRows_(username);
   rows.forEach(function(row) {
     setField_(sheet, row.row, "active", false);
     setField_(sheet, row.row, "updatedAt", new Date());
   });
-
   const unique = {};
-  (classIds || []).forEach(function(classId) {
-    if (classId) unique[String(classId)] = true;
-  });
-
+  (classIds || []).forEach(function(classId) { if (classId) unique[String(classId)] = true; });
   Object.keys(unique).forEach(function(classId) {
     classById_(classId, false);
-    const existing = rows.find(function(row) {
-      return String(row.obj.classId) === String(classId);
-    });
+    const existing = rows.find(function(row) { return String(row.obj.classId) === classId; });
     if (existing) {
       setField_(sheet, existing.row, "active", true);
       setField_(sheet, existing.row, "updatedAt", new Date());
     } else {
-      appendObject_(STUDENT_CLASSES_SHEET, {
-        username: username,
-        classId: classId,
-        active: true,
-        updatedAt: new Date()
-      });
+      appendObject_(STUDENT_CLASSES_SHEET, { username: username, classId: classId, active: true, updatedAt: new Date() });
     }
   });
 }
@@ -528,14 +571,11 @@ function ensureStatusRow_(username) {
   const existing = rowObjs_(STATUS_SHEET).find(function(row) {
     return String(row.obj.username || "").trim().toLowerCase() === key;
   });
-  if (existing) return existing.row;
-  return appendObject_(STATUS_SHEET, { username: username, updatedAt: new Date() });
+  return existing ? existing.row : appendObject_(STATUS_SHEET, { username: username, updatedAt: new Date() });
 }
 
 function activeModuleForClass_(classId, moduleId) {
-  const module = listModules_(classId, true).modules.find(function(item) {
-    return String(item.id) === String(moduleId);
-  });
+  const module = listModules_(classId, true).modules.find(function(item) { return String(item.id) === String(moduleId); });
   if (!module) throw new Error("Module not found for this class");
   return module;
 }
@@ -547,23 +587,14 @@ function logModule_(username, classId, moduleId) {
   const sheet = sh_(PROGRESS_SHEET);
   const key = String(username || "").trim().toLowerCase();
   const existing = rowObjs_(PROGRESS_SHEET).find(function(row) {
-    return String(row.obj.username || "").trim().toLowerCase() === key &&
-      String(row.obj.classId) === id &&
-      String(row.obj.moduleId) === String(module.id);
+    return String(row.obj.username || "").trim().toLowerCase() === key && String(row.obj.classId) === id && String(row.obj.moduleId) === String(module.id);
   });
   if (existing) {
     setField_(sheet, existing.row, "complete", true);
     setField_(sheet, existing.row, "updatedAt", new Date());
   } else {
-    appendObject_(PROGRESS_SHEET, {
-      username: username,
-      classId: id,
-      moduleId: String(module.id),
-      complete: true,
-      updatedAt: new Date()
-    });
+    appendObject_(PROGRESS_SHEET, { username: username, classId: id, moduleId: String(module.id), complete: true, updatedAt: new Date() });
   }
-
   if (id === DEFAULT_CLASS_ID) {
     const statusRow = ensureStatusRow_(username);
     const statusSheet = sh_(STATUS_SHEET);
@@ -575,9 +606,7 @@ function logModule_(username, classId, moduleId) {
 }
 
 function allModulesComplete_(modules) {
-  return Array.isArray(modules) && modules.length > 0 && modules.every(function(module) {
-    return !!module.complete;
-  });
+  return Array.isArray(modules) && modules.length > 0 && modules.every(function(module) { return !!module.complete; });
 }
 
 function logTest_(username, classId, complete, score) {
@@ -588,16 +617,7 @@ function logTest_(username, classId, complete, score) {
   const numericScore = Number(score);
   if (isNaN(numericScore)) throw new Error("Missing score");
   const passed = !!complete && numericScore >= Number(cls.passingScore || 80);
-
-  appendObject_(TEST_RESULTS_SHEET, {
-    username: username,
-    classId: id,
-    complete: !!complete,
-    score: numericScore,
-    passed: passed,
-    updatedAt: new Date()
-  });
-
+  appendObject_(TEST_RESULTS_SHEET, { username: username, classId: id, complete: !!complete, score: numericScore, passed: passed, updatedAt: new Date() });
   if (id === DEFAULT_CLASS_ID) {
     const row = ensureStatusRow_(username);
     const sheet = sh_(STATUS_SHEET);
@@ -605,68 +625,46 @@ function logTest_(username, classId, complete, score) {
     setField_(sheet, row, "testScore", numericScore);
     setField_(sheet, row, "updatedAt", new Date());
   }
-
   sendTestEmail_(username, id, cls.title, numericScore, passed);
   return getStatus_(username, id);
 }
 
 function saveClass_(data) {
-  const payload = {
-    id: data.id || Utilities.getUuid(),
-    title: data.title || "Untitled Class",
-    description: data.description || "",
-    passingScore: Number(data.passingScore || 80),
-    requiredWatchPercent: normalizeWatchPercent_(data.requiredWatchPercent),
-    sortOrder: Number(data.sortOrder || 99),
-    active: data.active === false ? false : active_(data.active)
-  };
-  return upsertById_(CLASSES_SHEET, payload, ["id", "title", "description", "passingScore", "requiredWatchPercent", "sortOrder", "active"]);
+  return upsertById_(CLASSES_SHEET, {
+    id: data.id || Utilities.getUuid(), title: data.title || "Untitled Class", description: data.description || "",
+    passingScore: Number(data.passingScore || 80), requiredWatchPercent: normalizeWatchPercent_(data.requiredWatchPercent),
+    sortOrder: Number(data.sortOrder || 99), active: data.active === false ? false : active_(data.active)
+  }, ["id", "title", "description", "passingScore", "requiredWatchPercent", "sortOrder", "active"]);
 }
 
 function saveModule_(data) {
   const classId = String(data.classId || DEFAULT_CLASS_ID);
   classById_(classId, false);
-  const payload = {
-    id: data.id || Utilities.getUuid(),
-    classId: classId,
-    title: data.title || "Untitled Module",
-    youtubeId: extractYouTubeId_(data.youtubeId || data.youtubeUrl || ""),
-    sortOrder: Number(data.sortOrder || 99),
-    requiredWatchPercent: normalizeWatchPercent_(data.requiredWatchPercent),
-    active: data.active === false ? false : active_(data.active)
-  };
-  return upsertById_(MODULES_SHEET, payload, ["id", "classId", "title", "youtubeId", "sortOrder", "requiredWatchPercent", "active"]);
+  return upsertById_(MODULES_SHEET, {
+    id: data.id || Utilities.getUuid(), classId: classId, title: data.title || "Untitled Module",
+    youtubeId: extractYouTubeId_(data.youtubeId || data.youtubeUrl || ""), sortOrder: Number(data.sortOrder || 99),
+    requiredWatchPercent: normalizeWatchPercent_(data.requiredWatchPercent), active: data.active === false ? false : active_(data.active)
+  }, ["id", "classId", "title", "youtubeId", "sortOrder", "requiredWatchPercent", "active"]);
 }
 
 function saveTestQuestion_(data) {
   const classId = String(data.classId || DEFAULT_CLASS_ID);
   classById_(classId, false);
-  const payload = {
-    id: data.id || Utilities.getUuid(),
-    classId: classId,
-    question: data.question || "",
-    optionA: data.optionA || "",
-    optionB: data.optionB || "",
-    optionC: data.optionC || "",
-    optionD: data.optionD || "",
-    correctIndex: Number(data.correctIndex || 0),
-    sortOrder: Number(data.sortOrder || 99),
-    active: data.active === false ? false : active_(data.active)
-  };
-  return upsertById_(TEST_QUESTIONS_SHEET, payload, ["id", "classId", "question", "optionA", "optionB", "optionC", "optionD", "correctIndex", "sortOrder", "active"]);
+  return upsertById_(TEST_QUESTIONS_SHEET, {
+    id: data.id || Utilities.getUuid(), classId: classId, question: data.question || "", optionA: data.optionA || "",
+    optionB: data.optionB || "", optionC: data.optionC || "", optionD: data.optionD || "",
+    correctIndex: Number(data.correctIndex || 0), sortOrder: Number(data.sortOrder || 99), active: data.active === false ? false : active_(data.active)
+  }, ["id", "classId", "question", "optionA", "optionB", "optionC", "optionD", "correctIndex", "sortOrder", "active"]);
 }
 
 function upsertById_(sheetName, data, fields) {
   const sheet = sh_(sheetName);
-  const existing = rowObjs_(sheetName).find(function(row) {
-    return String(row.obj.id) === String(data.id);
-  });
+  const existing = rowObjs_(sheetName).find(function(row) { return String(row.obj.id) === String(data.id); });
   if (existing) {
     fields.forEach(function(field) { setField_(sheet, existing.row, field, data[field]); });
     if (headers_(sheet).indexOf("updatedAt") !== -1) setField_(sheet, existing.row, "updatedAt", new Date());
   } else {
-    const obj = Object.assign({}, data);
-    obj.updatedAt = new Date();
+    const obj = Object.assign({}, data, { updatedAt: new Date() });
     appendObject_(sheetName, obj);
   }
   return { ok: true, id: data.id };
@@ -675,9 +673,7 @@ function upsertById_(sheetName, data, fields) {
 function deactivateById_(sheetName, id) {
   if (!id) return { ok: false, error: "Missing id" };
   const sheet = sh_(sheetName);
-  const existing = rowObjs_(sheetName).find(function(row) {
-    return String(row.obj.id) === String(id);
-  });
+  const existing = rowObjs_(sheetName).find(function(row) { return String(row.obj.id) === String(id); });
   if (!existing) return { ok: false, error: "Not found" };
   setField_(sheet, existing.row, "active", false);
   if (headers_(sheet).indexOf("updatedAt") !== -1) setField_(sheet, existing.row, "updatedAt", new Date());
@@ -692,51 +688,27 @@ function submitSignupRequest_(data) {
   const contact = String(data.preferredContact).trim();
   if (!validPreferredContact_(contact)) throw new Error("Enter a valid email address or cell phone number.");
   const cls = classById_(data.requestedClassId, true);
-
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     if (findStudent_(username)) throw new Error("That username is already in use. Please choose another.");
     appendObject_(STUDENTS_SHEET, {
-      username: username,
-      password: data.password,
-      updatedAt: new Date(),
-      fullNameOnLicense: data.fullNameOnLicense,
-      licenseNumber: data.licenseNumber,
-      dob: data.dob,
-      active: false,
-      archivedAt: "",
-      preferredContact: contact
+      username: username, password: data.password, updatedAt: new Date(), fullNameOnLicense: data.fullNameOnLicense,
+      licenseNumber: data.licenseNumber, dob: data.dob, active: false, archivedAt: "", preferredContact: contact
     });
     saveAssignments_(username, [data.requestedClassId]);
     appendObject_(SIGNUP_REQUESTS_SHEET, {
-      createdAt: new Date(),
-      fullNameOnLicense: data.fullNameOnLicense,
-      licenseNumber: data.licenseNumber,
-      dob: data.dob,
-      requestedClassId: data.requestedClassId,
-      requestedClassTitle: cls.title || data.requestedClassId,
-      status: "new",
-      preferredContact: contact
+      createdAt: new Date(), fullNameOnLicense: data.fullNameOnLicense, licenseNumber: data.licenseNumber, dob: data.dob,
+      requestedClassId: data.requestedClassId, requestedClassTitle: cls.title || data.requestedClassId, status: "new", preferredContact: contact
     });
   } finally {
     lock.releaseLock();
   }
-
   if (ADMIN_EMAIL) {
-    MailApp.sendEmail(
-      ADMIN_EMAIL,
-      "New Blue Ridge ELDT training request",
-      "Training request\nUsername: " + username +
-      "\nName: " + data.fullNameOnLicense +
-      "\nLicense: " + data.licenseNumber +
-      "\nContact: " + contact +
-      "\nDOB: " + data.dob +
-      "\nTraining: " + (cls.title || data.requestedClassId) +
-      "\nStatus: Pending approval"
-    );
+    MailApp.sendEmail(ADMIN_EMAIL, "New Blue Ridge ELDT training request",
+      "Training request\nUsername: " + username + "\nName: " + data.fullNameOnLicense + "\nLicense: " + data.licenseNumber +
+      "\nContact: " + contact + "\nDOB: " + data.dob + "\nTraining: " + (cls.title || data.requestedClassId) + "\nStatus: Pending approval");
   }
-
   return { ok: true, username: username, pendingApproval: true, backendVersion: BACKEND_VERSION };
 }
 
@@ -752,16 +724,9 @@ function sendTestEmail_(username, classId, title, score, passed) {
   if (!ADMIN_EMAIL) return;
   const student = findStudent_(username);
   const info = student ? student.obj : {};
-  MailApp.sendEmail(
-    ADMIN_EMAIL,
-    "Blue Ridge ELDT test finished",
-    "Test finished\nScore: " + score +
-    "\nPass/fail: " + (passed ? "pass" : "fail") +
-    "\nClass/training: " + (title || classId) +
-    "\nUsername: " + username +
-    "\nFull name on license: " + (info.fullNameOnLicense || "") +
-    "\nLicense number: " + (info.licenseNumber || "")
-  );
+  MailApp.sendEmail(ADMIN_EMAIL, "Blue Ridge ELDT test finished",
+    "Test finished\nScore: " + score + "\nPass/fail: " + (passed ? "pass" : "fail") + "\nClass/training: " + (title || classId) +
+    "\nUsername: " + username + "\nFull name on license: " + (info.fullNameOnLicense || "") + "\nLicense number: " + (info.licenseNumber || ""));
 }
 
 function extractYouTubeId_(value) {
@@ -773,7 +738,5 @@ function extractYouTubeId_(value) {
 }
 
 function json_(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
