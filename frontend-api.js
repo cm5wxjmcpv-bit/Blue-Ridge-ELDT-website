@@ -6,21 +6,23 @@ const DEFAULT_CLASS_ID = "class-a-b";
 const DEFAULT_CLASSES = [
   { id: DEFAULT_CLASS_ID, title: "Class A and B", description: "CDL Class A/B ELDT training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 1, active: true },
   { id: "class-b-to-a", title: "Class B to A Upgrade", description: "Upgrade training from Class B to Class A", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 2, active: true },
-  { id: "passenger", title: "Passenger Endorsement", description: "Passenger endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 3, active: true },
-  { id: "school-bus", title: "School Bus Endorsement", description: "School bus endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 4, active: true },
-  { id: "tanker", title: "Tanker Endorsement", description: "Tanker endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 5, active: true },
+  { id: "passenger", title: "Passenger and School Bus Endorsement", description: "Passenger and school bus endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 3, active: true },
+  { id: "school-bus", title: "School Bus Endorsement", description: "School bus endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 4, active: false },
+  { id: "tanker", title: "Tanker Endorsement", description: "Tanker endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 5, active: false },
   { id: "hazmat", title: "Hazmat Endorsement", description: "Hazmat endorsement training", passingScore: 80, requiredWatchPercent: 0.9, sortOrder: 6, active: true }
 ];
 
-const DEFAULT_MODULES = (typeof MODULES !== "undefined" ? MODULES : []).map((module, index) => ({
-  id: String(module.id),
-  classId: DEFAULT_CLASS_ID,
-  title: module.title,
-  youtubeId: module.youtubeId,
-  sortOrder: index + 1,
-  requiredWatchPercent: typeof REQUIRED_WATCH_PERCENT !== "undefined" ? REQUIRED_WATCH_PERCENT : 0.9,
-  active: true
-}));
+const DEFAULT_MODULES = [
+  { id: "1", classId: DEFAULT_CLASS_ID, title: "Module 1 — Introduction", youtubeId: "-qXt8htJ9h4", sortOrder: 1, requiredWatchPercent: 0.9, active: true },
+  { id: "2", classId: DEFAULT_CLASS_ID, title: "Module 2 — Safety & Inspection", youtubeId: "RS4K5FCL988", sortOrder: 2, requiredWatchPercent: 0.9, active: true },
+  { id: "3", classId: DEFAULT_CLASS_ID, title: "Module 3 — Basic Operations", youtubeId: "TLeq0WikSmU", sortOrder: 3, requiredWatchPercent: 0.9, active: true },
+  { id: "4", classId: DEFAULT_CLASS_ID, title: "Module 4 — Advanced Driving", youtubeId: "cMML4tQdVvY", sortOrder: 4, requiredWatchPercent: 0.9, active: true },
+  { id: "8", classId: "hazmat", title: "Hazmat Module 1", youtubeId: "g8WOxP_PDJ8", sortOrder: 1, requiredWatchPercent: 0.9, active: true },
+  { id: "9", classId: "hazmat", title: "Hazmat Module 2", youtubeId: "CLIhc8MWFJ8", sortOrder: 2, requiredWatchPercent: 0.9, active: true },
+  { id: "10", classId: "class-b-to-a", title: "B to A Upgrade", youtubeId: "zeaHTafu4CY", sortOrder: 1, requiredWatchPercent: 0.9, active: true },
+  { id: "11", classId: "passenger", title: "Passenger and School Bus Module 1", youtubeId: "ocQxZ3-fk1M", sortOrder: 1, requiredWatchPercent: 0.9, active: true },
+  { id: "12", classId: "passenger", title: "Passenger and School Bus Module 2", youtubeId: "Z0V1nlzn2ks", sortOrder: 2, requiredWatchPercent: 0.9, active: true }
+];
 
 function qs(param) {
   return new URLSearchParams(location.search).get(param);
@@ -54,7 +56,6 @@ function extractYouTubeId(value) {
     const match = text.match(pattern);
     if (match) return match[1];
   }
-
   return text;
 }
 
