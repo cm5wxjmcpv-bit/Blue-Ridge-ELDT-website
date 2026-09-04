@@ -3,8 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CDL Training Portal - Public Resources</title>
-
+  <title>Blue Ridge ELDT - Public Resources</title>
   <style>
     :root{
       --navy:#17324d;
@@ -18,568 +17,83 @@
       --shadow:0 12px 32px rgba(16,38,58,.12);
       --radius:18px;
     }
-
-    * { box-sizing: border-box; }
-
-    body{
-      margin:0;
-      min-height:100vh;
-      font-family: Inter, system-ui, Arial, sans-serif;
-      background: linear-gradient(180deg, #f5f7fa 0%, var(--bg) 100%);
-      color: var(--text);
-    }
-
-    .topbar{
-      background: linear-gradient(135deg, var(--navy-dark), var(--navy));
-      border-bottom: 4px solid var(--green);
-      color: #fff;
-      box-shadow: 0 4px 18px rgba(0,0,0,.14);
-    }
-
-    .topbar-inner{
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 18px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    .topbar-left{
-      display:flex;
-      align-items:center;
-      gap:16px;
-      min-width:0;
-    }
-
-    .brand-logo{
-      width: 60px;
-      height: 60px;
-      border-radius: 14px;
-      background: rgba(255,255,255,.10);
-      border: 1px solid rgba(255,255,255,.18);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      overflow:hidden;
-      flex: 0 0 auto;
-    }
-
-    .brand-logo img{
-      width:100%;
-      height:100%;
-      object-fit:contain;
-      display:block;
-    }
-
-    .brand-fallback{
-      font-size: 28px;
-      font-weight: 800;
-      color:#fff;
-      line-height:1;
-    }
-
-    .brand-text h1{
-      margin:0;
-      font-size: clamp(1.35rem, 2vw, 2rem);
-      line-height:1.1;
-      letter-spacing:.02em;
-    }
-
-    .brand-text p{
-      margin:4px 0 0;
-      color: rgba(255,255,255,.86);
-      font-size: .98rem;
-      font-weight: 500;
-    }
-
-    .top-actions{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-
-    .top-link{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      padding:12px 16px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.22);
-      background: rgba(255,255,255,.10);
-      color:#fff;
-      text-decoration:none;
-      font-weight:800;
-      transition:background .15s ease, border-color .15s ease, transform .08s ease;
-    }
-
-    .top-link:hover{
-      background: rgba(255,255,255,.16);
-      border-color: rgba(255,255,255,.30);
-    }
-
-    .top-link:active{
-      transform:translateY(1px);
-    }
-
-    .page{
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 34px 20px 48px;
-    }
-
-    .hero{
-      background: var(--card);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      border: 1px solid rgba(23,50,77,.06);
-      padding: 34px;
-      position:relative;
-      overflow:hidden;
-      margin-bottom:28px;
-      isolation:isolate;
-    }
-
-    .hero::after{
-      content:"";
-      position:absolute;
-      right:-70px;
-      bottom:-70px;
-      width: 300px;
-      height: 300px;
-      background: url("logo.png") no-repeat center/contain;
-      opacity:.05;
-      pointer-events:none;
-      z-index:-1;
-    }
-
-    .eyebrow{
-      display:inline-block;
-      padding:8px 12px;
-      border-radius:999px;
-      background:#e7eef5;
-      color:var(--navy);
-      font-size:.86rem;
-      font-weight:800;
-      margin-bottom:18px;
-    }
-
-    .hero h2{
-      margin:0 0 12px;
-      font-size: clamp(2rem, 4vw, 3rem);
-      line-height: 1.05;
-      color: var(--navy-dark);
-    }
-
-    .accent{
-      width: 88px;
-      height: 4px;
-      border-radius:999px;
-      background: var(--green);
-      margin: 0 0 18px;
-    }
-
-    .hero p{
-      margin:0;
-      max-width:720px;
-      color: var(--muted);
-      font-size: 1.05rem;
-      line-height: 1.65;
-    }
-
-    .hero-points{
-      margin-top:22px;
-      display:grid;
-      grid-template-columns: repeat(3, minmax(0,1fr));
-      gap:14px;
-    }
-
-    .hero-point{
-      background:#f7fafc;
-      border:1px solid var(--border);
-      border-radius:14px;
-      padding:16px;
-      box-shadow:0 8px 18px rgba(16,38,58,.05);
-    }
-
-    .hero-point strong{
-      display:block;
-      color:var(--navy-dark);
-      margin-bottom:6px;
-      font-size:1rem;
-    }
-
-    .hero-point span{
-      color:var(--muted);
-      line-height:1.55;
-      font-size:.95rem;
-    }
-
-    .section{
-      margin-top: 30px;
-    }
-
-    .section-header{
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:16px;
-      margin-bottom:16px;
-      flex-wrap:wrap;
-    }
-
-    .section-header h3{
-      margin:0;
-      font-size:1.45rem;
-      color:var(--navy-dark);
-    }
-
-    .section-header p{
-      margin:6px 0 0;
-      color:var(--muted);
-      line-height:1.55;
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: repeat(2, minmax(0,1fr));
-      gap: 20px;
-    }
-
-    .card{
-      background: var(--card);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      border: 1px solid rgba(23,50,77,.06);
-      padding: 24px;
-    }
-
-    .card h4{
-      margin:0 0 10px;
-      font-size:1.25rem;
-      color:var(--navy-dark);
-    }
-
-    .card p{
-      margin:0;
-      color:var(--muted);
-      line-height:1.65;
-    }
-
-    .meta{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      margin-top:16px;
-      margin-bottom:18px;
-    }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      padding:8px 12px;
-      border-radius:999px;
-      background:#eef4f8;
-      color:var(--navy);
-      font-weight:800;
-      font-size:.85rem;
-      border:1px solid #dbe6ef;
-    }
-
-    .actions{
-      display:flex;
-      flex-wrap:wrap;
-      gap:12px;
-      margin-top:8px;
-    }
-
-    .btn,
-    .btn-secondary{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-height:46px;
-      padding:12px 16px;
-      border-radius:12px;
-      text-decoration:none;
-      font-weight:800;
-      transition:transform .08s ease, opacity .15s ease, background .15s ease, border-color .15s ease;
-      cursor:pointer;
-    }
-
-    .btn{
-      background: linear-gradient(135deg, var(--navy-dark), var(--navy));
-      color:#fff;
-      border:0;
-      box-shadow:0 10px 20px rgba(16,38,58,.18);
-    }
-
-    .btn-secondary{
-      background:#fff;
-      color:var(--navy-dark);
-      border:1px solid var(--border);
-      box-shadow:0 8px 18px rgba(16,38,58,.08);
-    }
-
-    .btn:hover,
-    .btn-secondary:hover{
-      opacity:.97;
-    }
-
-    .btn:active,
-    .btn-secondary:active{
-      transform:translateY(1px);
-    }
-
-    .info-box{
-      margin-top:20px;
-      padding:18px;
-      border-radius:14px;
-      background:#f7fafc;
-      border:1px solid var(--border);
-      color:var(--muted);
-      line-height:1.65;
-    }
-
-    .video-card{
-      display:flex;
-      flex-direction:column;
-      gap:14px;
-      min-height: 220px;
-      justify-content:center;
-      text-align:left;
-    }
-
-    .video-embed{
-      position:relative;
-      width:100%;
-      aspect-ratio:16 / 9;
-      overflow:hidden;
-      border-radius:14px;
-      background:#10263a;
-      box-shadow:0 10px 20px rgba(16,38,58,.12);
-    }
-
-    .video-embed iframe{
-      position:absolute;
-      inset:0;
-      width:100%;
-      height:100%;
-      border:0;
-    }
-
-    .video-placeholder{
-      border:2px dashed #c9d6e2;
-      border-radius:14px;
-      background:#f9fbfc;
-      padding:20px;
-      color:var(--muted);
-      line-height:1.6;
-    }
-
-    .footer{
-      max-width:1120px;
-      margin:0 auto;
-      padding: 0 20px 30px;
-      color: var(--muted);
-      font-size:.92rem;
-    }
-
-    @media (max-width: 900px){
-      .hero-points{
-        grid-template-columns: 1fr;
-      }
-      .grid{
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 560px){
-      .brand-logo{
-        width:52px;
-        height:52px;
-      }
-      .hero,
-      .card{
-        padding:22px;
-      }
-      .top-link,
-      .btn,
-      .btn-secondary{
-        width:100%;
-      }
-      .actions,
-      .top-actions{
-        flex-direction:column;
-      }
-    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(180deg,#f5f7fa 0%,var(--bg) 100%);color:var(--text)}
+    .topbar{background:linear-gradient(135deg,var(--navy-dark),var(--navy));border-bottom:4px solid var(--green);color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.14)}
+    .topbar-inner{max-width:1120px;margin:0 auto;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .brand{display:flex;align-items:center;gap:14px}
+    .mark{width:58px;height:58px;border-radius:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:23px}
+    .brand h1{margin:0;font-size:clamp(1.2rem,2vw,1.85rem)}
+    .brand p{margin:4px 0 0;color:rgba(255,255,255,.84);font-weight:600}
+    .top-link,.btn,.btn-secondary{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:800}
+    .top-link{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#fff}
+    .page{max-width:1120px;margin:0 auto;padding:38px 20px 48px}
+    .hero,.card{background:var(--card);border:1px solid rgba(23,50,77,.07);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .hero{padding:34px;margin-bottom:24px}
+    .eyebrow{display:inline-block;padding:8px 12px;border-radius:999px;background:#e7eef5;color:var(--navy);font-size:.86rem;font-weight:800;margin-bottom:16px}
+    h2,h3{color:var(--navy-dark)}
+    .hero h2{margin:0;font-size:clamp(2rem,4vw,3rem);line-height:1.05}
+    .accent{width:88px;height:4px;border-radius:999px;background:var(--green);margin:16px 0 18px}
+    .hero p,.card p{color:var(--muted);line-height:1.65}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+    .card{padding:24px}
+    .card h3{margin:0 0 8px}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+    .btn{background:linear-gradient(135deg,var(--navy-dark),var(--navy));color:#fff}
+    .btn-secondary{background:#fff;color:var(--navy-dark);border:1px solid var(--border)}
+    .notice{margin-top:24px;padding:18px;border-radius:14px;background:#f7fafc;border:1px solid var(--border);color:var(--muted);line-height:1.6}
+    .footer{max-width:1120px;margin:0 auto;padding:0 20px 30px;color:var(--muted);font-size:.92rem}
+    @media(max-width:760px){.grid{grid-template-columns:1fr}.top-link,.btn,.btn-secondary{width:100%}.actions{flex-direction:column}}
   </style>
 </head>
 <body>
-
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="topbar-left">
-        <div class="brand-logo">
-          <img
-            src="logo.png"
-            alt="Martinsville CDL Program logo"
-            onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=&quot;brand-fallback&quot;>M</div>';">
-        </div>
-        <div class="brand-text">
-          <h1>Martinsville CDL Program</h1>
-          <p>Public CDL Study Resources</p>
+      <div class="brand">
+        <div class="mark">BR</div>
+        <div>
+          <h1>Blue Ridge Entry Level Driver Training</h1>
+          <p>Public Training Resources</p>
         </div>
       </div>
-
-      <div class="top-actions">
-        <a class="top-link" href="index.html">Back to Login</a>
-      </div>
+      <a class="top-link" href="index.html">Student Login</a>
     </div>
   </header>
 
   <main class="page">
     <section class="hero">
-      <span class="eyebrow">Public Resources</span>
-      <h2>Pre-trip study materials available before login.</h2>
+      <span class="eyebrow">Blue Ridge ELDT</span>
+      <h2>Training resources for CDL students.</h2>
       <div class="accent"></div>
       <p>
-        Use these public resources to review pre-trip material before class or before entering the
-        training portal. Study guides can be opened online or downloaded for offline use.
+        This public page is separate from the City of Martinsville training program. Blue Ridge resources
+        and study materials will be added here as they are prepared for business use.
       </p>
-
-      <div class="hero-points">
-        <div class="hero-point">
-          <strong>View online</strong>
-          <span>Open study guides in a browser-based document viewer.</span>
-        </div>
-        <div class="hero-point">
-          <strong>Download anytime</strong>
-          <span>Save guides to your phone, tablet, or computer for later review.</span>
-        </div>
-        <div class="hero-point">
-          <strong>Built to grow</strong>
-          <span>This page is ready for pre-trip videos and added training resources.</span>
-        </div>
-      </div>
     </section>
 
-    <section class="section">
-      <div class="section-header">
-        <div>
-          <h3>Pre-Trip Study Guides</h3>
-          <p>Open the guide online or download a copy for offline study.</p>
+    <section class="grid">
+      <article class="card">
+        <h3>Already enrolled?</h3>
+        <p>Sign in to open your assigned ELDT class, complete modules, and view your training progress.</p>
+        <div class="actions">
+          <a class="btn" href="index.html#loginCard">Student Sign In</a>
         </div>
-      </div>
+      </article>
 
-      <div class="grid">
-        <article class="card">
-          <h4>Class A Pre-Trip Study Guide</h4>
-          <p>
-            Public study material covering Class A pre-trip inspection content, including light checks,
-            engine compartment items, steering axle inspection, brake checks, and combination vehicle
-            components. The uploaded guide is titled “The City Of Martinsville Class A Pre-trip study guide.” 
-          </p>
-
-          <div class="meta">
-            <span class="pill">Class A</span>
-            <span class="pill">PDF Format</span>
-            <span class="pill">View or Download</span>
-          </div>
-
-          <div class="actions">
-            <a class="btn" href="Class-A-Pre-Trip-Study-Guide.pdf" target="_blank" rel="noopener">View</a>
-            <a class="btn-secondary" href="Class-A-Pre-Trip-Study-Guide.pdf" download>Download</a>
-          </div>
-        </article>
-
-        <article class="card">
-          <h4>Class B Pre-Trip Study Guide</h4>
-          <p>
-            Public study material covering Class B pre-trip inspection content, including light checks,
-            fluid and air leaks, steering and suspension items, internal inspection, and service brake tests.
-            The uploaded guide is titled “The City Of Martinsville Class B Pre-trip study guide.”
-          </p>
-
-          <div class="meta">
-            <span class="pill">Class B</span>
-            <span class="pill">PDF Format</span>
-            <span class="pill">View or Download</span>
-          </div>
-
-          <div class="actions">
-            <a class="btn" href="Class-B-Pre-Trip-Study-Guide.pdf" target="_blank" rel="noopener">View</a>
-            <a class="btn-secondary" href="Class-B-Pre-Trip-Study-Guide.pdf" download>Download</a>
-          </div>
-        </article>
-      </div>
-
-      <div class="info-box">
-        The study guides are provided as PDFs so they open cleanly on phones, tablets, and computers.
-        Use <strong>View</strong> to open the guide in the browser or <strong>Download</strong> to save a copy.
-      </div>
+      <article class="card">
+        <h3>Need training?</h3>
+        <p>Request access for Class A/B or an available endorsement course. Your request will be reviewed before the account is activated.</p>
+        <div class="actions">
+          <a class="btn" href="class-signup.html">Request Training</a>
+        </div>
+      </article>
     </section>
 
-    <section class="section">
-      <div class="section-header">
-        <div>
-          <h3>Pre-Trip Videos</h3>
-          <p>Watch public pre-trip study videos before class or before practicing your inspection.</p>
-        </div>
-      </div>
-
-      <div class="grid">
-        <article class="card video-card">
-          <h4>Air Brake Test Video</h4>
-          <p>Review the CDL air brake test procedure before class or before practicing your pre-trip inspection.</p>
-
-          <div class="video-embed">
-            <iframe
-              src="https://www.youtube.com/embed/bDv3-0drOSQ"
-              title="Air Brake Test Video"
-              loading="lazy"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              referrerpolicy="strict-origin-when-cross-origin"
-              allowfullscreen></iframe>
-          </div>
-
-          <div class="actions">
-            <a class="btn-secondary" href="https://youtu.be/bDv3-0drOSQ?si=uufekytgX2r-pQjU" target="_blank" rel="noopener">Open on YouTube</a>
-          </div>
-        </article>
-
-        <article class="card video-card">
-          <h4>Class A Pre-Trip Video</h4>
-          <div class="video-embed">
-            <iframe
-              src="https://www.youtube.com/embed/6DSvlh-zHu4"
-              title="Class A Pre-Trip Video"
-              loading="lazy"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              referrerpolicy="strict-origin-when-cross-origin"
-              allowfullscreen></iframe>
-          </div>
-
-          <div class="actions">
-            <a class="btn-secondary" href="https://youtu.be/6DSvlh-zHu4?si=DJDkSpiEpo5ktgia" target="_blank" rel="noopener">Open on YouTube</a>
-          </div>
-        </article>
-
-        <article class="card video-card">
-          <h4>Class B Pre-Trip Video</h4>
-          <div class="video-placeholder">
-            Class B pre-trip video coming soon.
-          </div>
-        </article>
-      </div>
-    </section>
+    <div class="notice">
+      The City of Martinsville pre-trip files that were copied with the original website are intentionally not linked from this Blue Ridge business page. Business-branded Class A and Class B study guides can be added here later without changing the city website.
+    </div>
   </main>
 
-  <div class="footer">
-    Martinsville CDL Program · Public CDL Study Resources
-  </div>
-
+  <div class="footer">Blue Ridge Entry Level Driver Training · ELDT Compliance Training</div>
 </body>
 </html>
