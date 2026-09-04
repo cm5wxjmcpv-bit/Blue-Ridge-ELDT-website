@@ -33,13 +33,40 @@
         display: block;
         margin: 8px 0;
       }
-      button {
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
+      button,
+      .action-link {
         padding: 12px 16px;
         border-radius: 10px;
         border: 0;
         background: #17324d;
         color: white;
         font-weight: 800;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+      .action-link.secondary {
+        background: #2f8f4e;
+      }
+      .result-pass {
+        color: #176b36;
+        font-weight: 700;
+      }
+      .result-fail {
+        color: #8a2d24;
+        font-weight: 700;
       }
     </style>
   </head>
@@ -50,23 +77,39 @@
     <div id="lock" class="card">Checking if test is unlocked…</div>
     <div id="test" class="card" style="display: none">
       <div class="small" id="testMeta"></div>
+      <div id="priorResult" class="small" style="margin-top:8px"></div>
       <form id="quizForm"></form>
-      <button id="submit" type="button">Submit</button
-      ><button id="retake" type="button">Retake</button>
-      <div id="result" style="margin-top: 12px"></div>
+      <div class="actions" id="actions">
+        <button id="submit" type="button">Submit Test</button>
+        <button id="retake" type="button" style="display:none">Retake Test</button>
+        <a id="dashboardBtn" class="action-link secondary" href="modules.html" style="display:none">Return to Training Dashboard</a>
+      </div>
+      <div id="result" style="margin-top: 14px"></div>
     </div>
     <script>
       document.addEventListener("DOMContentLoaded", () => {
         const username = requireAuth();
         const classId = qs("classId") || DEFAULT_CLASS_ID;
         document.getElementById("who").textContent = `Signed in as ${username}`;
-        let QUESTIONS = [],
-          classInfo = {},
-          status = {};
-        const lock = document.getElementById("lock"),
-          test = document.getElementById("test"),
-          form = document.getElementById("quizForm"),
-          result = document.getElementById("result");
+
+        let QUESTIONS = [];
+        let classInfo = {};
+        let status = {};
+        let submitting = false;
+
+        const lock = document.getElementById("lock");
+        const test = document.getElementById("test");
+        const form = document.getElementById("quizForm");
+        const result = document.getElementById("result");
+        const priorResult = document.getElementById("priorResult");
+        const submitBtn = document.getElementById("submit");
+        const retakeBtn = document.getElementById("retake");
+        const dashboardBtn = document.getElementById("dashboardBtn");
+
+        function passingScore() {
+          return Number(classInfo.passingScore || 80);
+        }
+
         function render() {
           form.innerHTML = "";
           QUESTIONS.forEach((q, i) => {
@@ -89,68 +132,154 @@
             form.appendChild(w);
           });
         }
+
         function selections() {
           return QUESTIONS.map((_, i) => {
             const x = form.querySelector(`input[name="q${i}"]:checked`);
             return x ? Number(x.value) : null;
           });
         }
+
+        function setSubmitting(value) {
+          submitting = value;
+          submitBtn.disabled = value;
+          retakeBtn.disabled = value;
+          form.querySelectorAll("input").forEach((input) => {
+            input.disabled = value;
+          });
+          if (value) submitBtn.textContent = "Saving Score…";
+          else submitBtn.textContent = "Submit Test";
+        }
+
+        function showPassed(bestScore, attemptScore, correct) {
+          form.querySelectorAll("input").forEach((input) => {
+            input.disabled = true;
+          });
+          submitBtn.style.display = "none";
+          retakeBtn.style.display = "none";
+          dashboardBtn.style.display = "inline-flex";
+          const bestText = bestScore === "" || bestScore === null || bestScore === undefined ? attemptScore : bestScore;
+          result.className = "result-pass";
+          result.innerHTML = `<b>Passed.</b> Score: ${attemptScore}%${Number(bestText) !== Number(attemptScore) ? ` · Best score: ${bestText}%` : ""}${correct !== null ? ` (${correct}/${QUESTIONS.length})` : ""}. Your course remains passed even if a lower score was recorded on an earlier attempt.`;
+        }
+
+        function showReadyForRetake(bestScore, attemptScore, correct) {
+          submitBtn.style.display = "none";
+          retakeBtn.style.display = "inline-flex";
+          dashboardBtn.style.display = "none";
+          const bestText = bestScore === "" || bestScore === null || bestScore === undefined ? attemptScore : bestScore;
+          result.className = "result-fail";
+          result.innerHTML = `<b>Did not pass.</b> This attempt: ${attemptScore}%${correct !== null ? ` (${correct}/${QUESTIONS.length})` : ""}. Best score: ${bestText}% · ${passingScore()}% required to pass.`;
+        }
+
         async function load() {
           const s = await apiGetStatus(username, classId);
           status = s;
+          if (!s || !s.ok) {
+            throw new Error((s && s.error) || "Unable to load course status");
+          }
           classInfo = s.classInfo || {};
           document.getElementById("testTitle").textContent =
             (classInfo.title || "Training") + " Final Test";
+
           if (!allModulesComplete(s)) {
-            lock.innerHTML =
-              "<b>Locked.</b> Finish all modules for this class first.";
+            lock.innerHTML = "<b>Locked.</b> Finish all modules for this class first.";
             return;
           }
+
+          document.getElementById("testMeta").innerHTML =
+            `Multiple choice · Passing score: <b>${passingScore()}%</b>`;
+
+          if (s.testPassed) {
+            lock.style.display = "none";
+            test.style.display = "block";
+            form.style.display = "none";
+            submitBtn.style.display = "none";
+            retakeBtn.style.display = "none";
+            dashboardBtn.style.display = "inline-flex";
+            result.className = "result-pass";
+            result.innerHTML = `<b>Passed.</b> Best score: ${s.testScore}% · This course is complete.`;
+            return;
+          }
+
+          if (s.testScore !== "" && s.testScore !== null && s.testScore !== undefined) {
+            priorResult.textContent = `Current best score: ${s.testScore}% · ${passingScore()}% required to pass.`;
+          }
+
           const q = await apiListTestQuestions(classId, true);
           QUESTIONS = q.questions || [];
           document.getElementById("testMeta").innerHTML =
-            `${QUESTIONS.length} questions · Multiple choice · Passing score: <b>${classInfo.passingScore || 80}%</b>`;
+            `${QUESTIONS.length} questions · Multiple choice · Passing score: <b>${passingScore()}%</b>`;
+
           if (!QUESTIONS.length) {
-            lock.textContent =
-              "No active questions are configured for this class.";
+            lock.textContent = "No active questions are configured for this class.";
             return;
           }
+
           render();
           lock.style.display = "none";
           test.style.display = "block";
         }
-        document
-          .getElementById("submit")
-          .addEventListener("click", async () => {
-            const selected = selections();
-            const unanswered = selected.filter((v) => v === null).length;
-            if (unanswered) {
-              result.innerHTML = `<b>Please answer all questions.</b> ${unanswered} unanswered.`;
-              return;
-            }
-            let correct = 0;
-            QUESTIONS.forEach((q, i) => {
-              if (selected[i] === Number(q.correctIndex)) correct++;
-            });
-            const score = Math.round((correct / QUESTIONS.length) * 100),
-              passed = score >= Number(classInfo.passingScore || 80);
-            result.textContent = "Logging score…";
-            const res = await apiLogTest(username, passed, score, classId);
-            if (!res.ok) {
-              result.innerHTML =
-                "<b>Error logging:</b> " + (res.error || "Unknown");
-              return;
-            }
-            result.innerHTML = `<b>${passed ? "Passed" : "Did not pass"}.</b> Score: ${score}% (${correct}/${QUESTIONS.length}).`;
+
+        submitBtn.addEventListener("click", async () => {
+          if (submitting) return;
+
+          const selected = selections();
+          const unanswered = selected.filter((v) => v === null).length;
+          if (unanswered) {
+            result.className = "";
+            result.innerHTML = `<b>Please answer all questions.</b> ${unanswered} unanswered.`;
+            return;
+          }
+
+          let correct = 0;
+          QUESTIONS.forEach((q, i) => {
+            if (selected[i] === Number(q.correctIndex)) correct++;
           });
-        document.getElementById("retake").addEventListener("click", () => {
+
+          const score = Math.round((correct / QUESTIONS.length) * 100);
+          const passed = score >= passingScore();
+
+          setSubmitting(true);
+          result.className = "";
+          result.textContent = "Saving score…";
+
+          try {
+            const res = await apiLogTest(username, passed, score, classId);
+            if (!res || !res.ok) {
+              setSubmitting(false);
+              result.innerHTML = "<b>Error logging:</b> " + ((res && res.error) || "Unknown");
+              return;
+            }
+
+            status = res;
+            setSubmitting(false);
+            if (res.testPassed) showPassed(res.testScore, score, correct);
+            else showReadyForRetake(res.testScore, score, correct);
+          } catch (err) {
+            setSubmitting(false);
+            console.error(err);
+            result.innerHTML = "<b>Unable to save the score.</b> Please try again.";
+          }
+        });
+
+        retakeBtn.addEventListener("click", () => {
           render();
+          form.style.display = "block";
+          form.querySelectorAll("input").forEach((input) => {
+            input.disabled = false;
+          });
+          submitBtn.style.display = "inline-flex";
+          retakeBtn.style.display = "none";
+          dashboardBtn.style.display = "none";
+          result.className = "";
           result.textContent = "";
           scrollTo({ top: 0, behavior: "smooth" });
         });
+
         load().catch((err) => {
           console.error(err);
-          lock.textContent = "Error loading test.";
+          lock.textContent = "Unable to load the test. Please return to the training dashboard and try again.";
         });
       });
     </script>
