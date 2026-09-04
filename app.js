@@ -14,7 +14,7 @@ const TEST_RESULTS_SHEET = "TestResults";
 const SIGNUP_REQUESTS_SHEET = "SignupRequests";
 const DEFAULT_CLASS_ID = "class-a-b";
 const ADMIN_EMAIL = "";
-const BACKEND_VERSION = "2026-09-04-blue-ridge-v2";
+const BACKEND_VERSION = "2026-09-04-blue-ridge-v3-best-score";
 const AUTH_TTL_SECONDS = 21600;
 
 const DEFAULT_CLASSES = [
@@ -453,13 +453,32 @@ function getStatus_(username, classId) {
   const matches = testRows.filter(function(row) {
     return String(row.obj.username || "").trim().toLowerCase() === key && String(row.obj.classId) === id;
   });
-  const latest = matches.length ? matches[matches.length - 1].obj : null;
+
+  let bestScore = "";
+  let passedEver = false;
+  const passingScore = Number(cls.passingScore || 80);
+
+  matches.forEach(function(row) {
+    const score = Number(row.obj.score);
+    if (!isNaN(score) && (bestScore === "" || score > Number(bestScore))) bestScore = score;
+    if (complete_(row.obj.passed) || (complete_(row.obj.complete) && !isNaN(score) && score >= passingScore)) {
+      passedEver = true;
+    }
+  });
+
+  if (legacy) {
+    const legacyScore = Number(legacy.testScore);
+    if (legacy.testScore !== "" && !isNaN(legacyScore) && (bestScore === "" || legacyScore > Number(bestScore))) {
+      bestScore = legacyScore;
+    }
+    if (legacy.testComplete) passedEver = true;
+  }
 
   return {
     ok: true, username: username, classId: id, classInfo: cls, modules: statusModules,
-    testComplete: latest ? complete_(latest.complete) : (legacy ? legacy.testComplete : false),
-    testScore: latest ? latest.score : (legacy ? legacy.testScore : ""),
-    testPassed: latest ? complete_(latest.passed) : (legacy ? legacy.testComplete : false)
+    testComplete: passedEver,
+    testScore: bestScore,
+    testPassed: passedEver
   };
 }
 
@@ -617,14 +636,30 @@ function logTest_(username, classId, complete, score) {
   const numericScore = Number(score);
   if (isNaN(numericScore)) throw new Error("Missing score");
   const passed = !!complete && numericScore >= Number(cls.passingScore || 80);
-  appendObject_(TEST_RESULTS_SHEET, { username: username, classId: id, complete: !!complete, score: numericScore, passed: passed, updatedAt: new Date() });
+
+  // Keep every attempt as its actual score. Course status is calculated from the best result.
+  appendObject_(TEST_RESULTS_SHEET, {
+    username: username,
+    classId: id,
+    complete: !!complete,
+    score: numericScore,
+    passed: passed,
+    updatedAt: new Date()
+  });
+
+  // Preserve compatibility with the legacy Class A/B Status tab without allowing a later
+  // lower retake to erase a previous pass or higher score.
   if (id === DEFAULT_CLASS_ID) {
     const row = ensureStatusRow_(username);
     const sheet = sh_(STATUS_SHEET);
-    setField_(sheet, row, "testComplete", passed ? "complete" : "");
-    setField_(sheet, row, "testScore", numericScore);
+    const priorScore = status.testScore === "" ? null : Number(status.testScore);
+    const bestScore = priorScore === null || isNaN(priorScore) ? numericScore : Math.max(priorScore, numericScore);
+    const passedEver = !!status.testPassed || passed;
+    setField_(sheet, row, "testComplete", passedEver ? "complete" : "");
+    setField_(sheet, row, "testScore", bestScore);
     setField_(sheet, row, "updatedAt", new Date());
   }
+
   sendTestEmail_(username, id, cls.title, numericScore, passed);
   return getStatus_(username, id);
 }
