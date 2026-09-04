@@ -279,6 +279,19 @@
       border-radius:14px;
     }
 
+    .continue-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      margin-top:12px;
+      padding:12px 16px;
+      border-radius:12px;
+      background:linear-gradient(135deg,var(--navy-dark),var(--navy));
+      color:#fff;
+      font-weight:800;
+      text-decoration:none;
+    }
+
     .side-card{
       padding:20px;
     }
@@ -328,6 +341,9 @@
       .video-shell,
       .side-card{
         padding:18px;
+      }
+      .continue-btn{
+        width:100%;
       }
     }
   </style>
@@ -428,6 +444,8 @@
     let playerReady = false;
     let selectedModule = null;
     let selectedClass = null;
+    let classModules = [];
+
     document.addEventListener("DOMContentLoaded", () => {
     const username = requireAuth();
     document.getElementById("who").textContent = `Signed in as ${username}`;
@@ -460,7 +478,19 @@
     function updateUI() { const wp=Math.floor(pct()*100), rp=Math.floor(requiredWatchPercent()*100), ar=requiredActiveSeconds(); document.getElementById("ruleText").textContent=`${rp}% minimum viewing threshold + active viewing time`; document.getElementById("progress").textContent=`Progress: ${wp}% · Active time: ${formatSeconds(validPlaySeconds)} / ${formatSeconds(ar)}`; document.getElementById("progressFill").style.width=`${wp}%`; document.getElementById("statusText").textContent=logged?"Complete":(completionReady()?"Eligible for Completion":"In Progress"); if(!logged) document.getElementById("done").innerHTML=`Watch at least ${rp}% and keep the video actively playing for ${formatSeconds(ar)}.`; }
     function stopTimers(){ if(progressTick)clearInterval(progressTick); if(guardTick)clearInterval(guardTick); progressTick=null; guardTick=null; }
     function startTimers(){ stopTimers(); progressTick=setInterval(progressLoop,500); guardTick=setInterval(detectAndCorrectSkip,GUARD_INTERVAL_MS); }
-    function completeModule(){ if(logged)return; logged=true; stopTimers(); document.getElementById("done").innerHTML="<b>Module complete.</b> Logging to Google Sheets…"; apiLogModule(username, selectedModule.id, classId).then(res=>{ if(!res.ok){ logged=false; startTimers(); document.getElementById("done").innerHTML="<b>Error logging completion:</b> "+(res.error||"Unknown"); return;} document.getElementById("statusText").textContent="Complete"; document.getElementById("done").innerHTML="<b>Logged.</b> You can go back to Modules."; }).catch(err=>{logged=false;startTimers();console.error(err);document.getElementById("done").innerHTML="<b>Error logging completion.</b>";}); }
+
+    function nextStepHtml(){
+      const ordered = classModules.slice().sort((a,b)=>Number(a.sortOrder||0)-Number(b.sortOrder||0));
+      const currentIndex = ordered.findIndex((m)=>String(m.id)===String(selectedModule.id));
+      const nextModule = currentIndex >= 0 ? ordered[currentIndex + 1] : null;
+      if(nextModule){
+        const nextNumber = Number(nextModule.sortOrder || 0) || currentIndex + 2;
+        return `<a class="continue-btn" href="player.html?classId=${encodeURIComponent(classId)}&m=${encodeURIComponent(nextModule.id)}">Continue to Module ${nextNumber}</a>`;
+      }
+      return `<a class="continue-btn" href="test.html?classId=${encodeURIComponent(classId)}">Continue to Final Test</a>`;
+    }
+
+    function completeModule(){ if(logged)return; logged=true; stopTimers(); document.getElementById("done").innerHTML="<b>Module complete.</b> Logging to Google Sheets…"; apiLogModule(username, selectedModule.id, classId).then(res=>{ if(!res.ok){ logged=false; startTimers(); document.getElementById("done").innerHTML="<b>Error logging completion:</b> "+(res.error||"Unknown"); return;} document.getElementById("statusText").textContent="Complete"; document.getElementById("done").innerHTML=`<b>Module complete and saved.</b><br>${nextStepHtml()}`; }).catch(err=>{logged=false;startTimers();console.error(err);document.getElementById("done").innerHTML="<b>Error logging completion.</b>";}); }
     function maybeComplete(){ if(!logged&&completionReady())completeModule(); }
     function enforcePlaybackRate(){ try{ if(player && player.getPlaybackRate() !== 1) player.setPlaybackRate(1); }catch{} }
     function performSeekCorrection(t){ if(!player||correctingSeek)return; correctingSeek=true; suppressGuardUntil=Date.now()+1200; try{player.pauseVideo();}catch{} setTimeout(()=>{try{player.seekTo(Math.max(0,t),true);}catch{} setTimeout(()=>{try{if(!logged)player.playVideo();}catch{} correctingSeek=false;},180);},60); }
@@ -470,7 +500,21 @@
     window.onYouTubeIframeAPIReady = initOrLoadPlayer;
     function onPlayerReady(){ playerReady=true; try{duration=player.getDuration()||0;player.setPlaybackRate(1);}catch{} if(selectedModule&&player&&player.loadVideoById) player.cueVideoById(selectedModule.youtubeId); updateUI(); startTimers(); }
     function onPlayerStateChange(){ try{duration=player.getDuration()||duration;player.setPlaybackRate(1);}catch{} }
-    async function loadModuleData(){ const dash=await apiGetStudentDashboard(username); selectedClass=(dash.classes||[]).find(c=>c.id===classId)||null; const mods=await apiListModules(classId,true); selectedModule=(mods.modules||[]).find(m=>String(m.id)===String(moduleId)); if(!selectedModule) throw new Error("Module not found"); document.getElementById("title").textContent=selectedModule.title; document.getElementById("modulePill").textContent=`${selectedClass?selectedClass.title:"Training"} · Module ${selectedModule.id}`; initOrLoadPlayer(); }
+
+    async function loadModuleData(){
+      const dash=await apiGetStudentDashboard(username);
+      if(!dash || !dash.ok) throw new Error((dash&&dash.error)||"Unable to load class");
+      selectedClass=(dash.classes||[]).find(c=>c.id===classId)||null;
+      const mods=await apiListModules(classId,true);
+      classModules=(mods.modules||[]).slice().sort((a,b)=>Number(a.sortOrder||0)-Number(b.sortOrder||0));
+      selectedModule=classModules.find(m=>String(m.id)===String(moduleId));
+      if(!selectedModule) throw new Error("Module not found");
+      const displayNumber = Number(selectedModule.sortOrder || 0) || (classModules.findIndex(m=>String(m.id)===String(selectedModule.id)) + 1);
+      document.getElementById("title").textContent=selectedModule.title;
+      document.getElementById("modulePill").textContent=`${selectedClass?selectedClass.title:"Training"} · Module ${displayNumber}`;
+      initOrLoadPlayer();
+    }
+
     loadModuleData().catch(err=>{ console.error(err); document.getElementById("done").textContent="Unable to load module."; });
     window.addEventListener("beforeunload",stopTimers);
     });
