@@ -1,4 +1,6 @@
 const AUTH_STORAGE_KEY = "cdl_username";
+const STUDENT_TOKEN_KEY = "cdl_student_token";
+const ADMIN_TOKEN_KEY = "cdl_admin_token";
 const DEFAULT_CLASS_ID = "class-a-b";
 
 const DEFAULT_CLASSES = [
@@ -56,24 +58,40 @@ function extractYouTubeId(value) {
   return text;
 }
 
+function authParams() {
+  const params = {};
+  const studentToken = localStorage.getItem(STUDENT_TOKEN_KEY);
+  const adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  if (studentToken) params.studentToken = studentToken;
+  if (adminToken) params.adminToken = adminToken;
+  return params;
+}
+
 async function apiGet(action, params = {}) {
   const url = new URL(APP_SCRIPT_URL);
   url.searchParams.set("action", action);
 
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
+  const merged = { ...authParams(), ...params };
+  Object.entries(merged).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, value);
     }
   });
 
-  const response = await fetch(url.toString());
-  return response.json();
+  const response = await fetch(url.toString(), { cache: "no-store" });
+  const data = await response.json();
+
+  if (String(action).toLowerCase() === "adminlogin" && data && data.ok && data.token) {
+    sessionStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+  }
+
+  return data;
 }
 
 async function apiPost(action, body = {}) {
   const response = await fetch(APP_SCRIPT_URL, {
     method: "POST",
-    body: JSON.stringify({ action, ...body })
+    body: JSON.stringify({ action, ...authParams(), ...body })
   });
 
   return response.json();
@@ -84,11 +102,14 @@ async function login(username, password) {
     const data = await apiGet("validateLogin", { username, password });
     if (data && data.ok) {
       localStorage.setItem(AUTH_STORAGE_KEY, data.username || username);
+      if (data.token) localStorage.setItem(STUDENT_TOKEN_KEY, data.token);
       return true;
     }
+    localStorage.removeItem(STUDENT_TOKEN_KEY);
     return false;
   } catch (err) {
     console.error(err);
+    localStorage.removeItem(STUDENT_TOKEN_KEY);
     return false;
   }
 }
@@ -103,7 +124,9 @@ function requireAuth() {
 }
 
 function logout() {
-  localStorage.clear();
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem(STUDENT_TOKEN_KEY);
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
   location.href = "index.html";
 }
 
