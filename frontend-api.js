@@ -67,6 +67,20 @@ function authParams() {
   return params;
 }
 
+function isSessionExpiredResponse(data) {
+  return !!(data && !data.ok && /session expired/i.test(String(data.error || "")));
+}
+
+function handleSessionExpired(data) {
+  if (!isSessionExpiredResponse(data)) return false;
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem(STUDENT_TOKEN_KEY);
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  alert("Your session expired. Please sign in again.");
+  location.href = "index.html";
+  return true;
+}
+
 async function apiGet(action, params = {}) {
   const url = new URL(APP_SCRIPT_URL);
   url.searchParams.set("action", action);
@@ -85,6 +99,7 @@ async function apiGet(action, params = {}) {
     sessionStorage.setItem(ADMIN_TOKEN_KEY, data.token);
   }
 
+  handleSessionExpired(data);
   return data;
 }
 
@@ -94,7 +109,9 @@ async function apiPost(action, body = {}) {
     body: JSON.stringify({ action, ...authParams(), ...body })
   });
 
-  return response.json();
+  const data = await response.json();
+  handleSessionExpired(data);
+  return data;
 }
 
 async function login(username, password) {
