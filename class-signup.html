@@ -45,6 +45,7 @@
       <label>Confirm password<input id="confirmPassword" type="password" autocomplete="new-password" required></label>
       <label>Full name as shown on license<input id="fullNameOnLicense" autocomplete="name" required></label>
       <label>License number<input id="licenseNumber" required></label>
+      <label>License state<select id="licenseState" required><option value="">Select state</option></select></label>
       <label>Email address or cell phone number <span class="small">(email preferred)</span><input id="preferredContact" type="text" autocomplete="email" placeholder="name@example.com or (276) 555-0123" required></label>
       <fieldset><legend>Date of birth</legend><div class="date-grid"><label>Year<select id="dobYear" required><option value="">Year</option></select></label><label>Month<select id="dobMonth" required><option value="">Month</option></select></label><label>Day<select id="dobDay" required><option value="">Day</option></select></label></div></fieldset>
       <label>Requested training<select id="requestedClassId" required></select></label>
@@ -63,11 +64,23 @@
   <script>
     document.addEventListener("DOMContentLoaded",()=>{
       const select=document.getElementById("requestedClassId");
+      const stateSelect=document.getElementById("licenseState");
       const msg=document.getElementById("msg");
       const contactInput=document.getElementById("preferredContact");
       const submitBtn=document.getElementById("submitBtn");
       const confirmationModal=document.getElementById("confirmationModal");
       const confirmationClose=document.getElementById("confirmationClose");
+      const LICENSE_STATES=[
+        ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["FL","Florida"],["GA","Georgia"],["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"],["DC","District of Columbia"],["PR","Puerto Rico"],["VI","U.S. Virgin Islands"],["GU","Guam"],["AS","American Samoa"],["MP","Northern Mariana Islands"]
+      ];
+      function populateLicenseStates(){
+        LICENSE_STATES.forEach(([code,name])=>{
+          const option=document.createElement("option");
+          option.value=code;
+          option.textContent=`${name} (${code})`;
+          stateSelect.appendChild(option);
+        });
+      }
       function validContact(value){
         const contact=String(value||"").trim();
         const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
@@ -150,11 +163,12 @@
           password:document.getElementById("password").value,
           fullNameOnLicense:document.getElementById("fullNameOnLicense").value.trim(),
           licenseNumber:document.getElementById("licenseNumber").value.trim(),
+          licenseState:stateSelect.value,
           preferredContact,
           dob:dobYear&&dobMonth&&dobDay?[dobYear,dobMonth,dobDay].join("-"):"",
           requestedClassId:select.value
         };
-        if(!payload.username||!payload.password||!confirmPassword||!payload.fullNameOnLicense||!payload.licenseNumber||!payload.preferredContact||!payload.dob||!payload.requestedClassId){
+        if(!payload.username||!payload.password||!confirmPassword||!payload.fullNameOnLicense||!payload.licenseNumber||!payload.licenseState||!payload.preferredContact||!payload.dob||!payload.requestedClassId){
           msg.className="error";
           msg.textContent="Please complete all required fields.";
           return;
@@ -193,6 +207,7 @@
       });
       contactInput.addEventListener("input",()=>contactInput.setCustomValidity(""));
       confirmationClose.addEventListener("click",hideConfirmation);
+      populateLicenseStates();
       populateDateOptions();
       render(DEFAULT_CLASSES);
       load();
