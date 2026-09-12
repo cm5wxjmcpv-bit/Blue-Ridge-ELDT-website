@@ -15,8 +15,8 @@ const TEST_RESULTS_SHEET = "TestResults";
 const SIGNUP_REQUESTS_SHEET = "SignupRequests";
 
 const DEFAULT_CLASS_ID = "class-a-b";
-const ADMIN_EMAIL = "";
-const BACKEND_VERSION = "2026-09-05-blue-ridge-v5-license-state";
+const ADMIN_EMAIL = "Blueridgeeldt@gmail.com";
+const BACKEND_VERSION = "2026-09-12-blue-ridge-v6-email-alerts";
 const AUTH_TTL_SECONDS = 21600;
 
 const DEFAULT_CLASSES = [
@@ -773,7 +773,9 @@ function logTest_(username, classId, complete, score) {
     setField_(sheet, row, "updatedAt", new Date());
   }
 
-  sendTestEmail_(username, id, cls.title, numericScore, passed);
+  if (passed && !status.testPassed) {
+    sendTestEmail_(username, id, cls, numericScore, new Date());
+  }
   return getStatus_(username, id);
 }
 
@@ -890,18 +892,27 @@ function submitSignupRequest_(data) {
   }
 
   if (ADMIN_EMAIL) {
-    MailApp.sendEmail(
-      ADMIN_EMAIL,
-      "New Blue Ridge ELDT training request",
-      "Training request\nUsername: " + username +
-      "\nName: " + data.fullNameOnLicense +
-      "\nLicense: " + data.licenseNumber +
-      "\nLicense state: " + licenseState +
-      "\nContact: " + contact +
-      "\nDOB: " + data.dob +
-      "\nTraining: " + (cls.title || data.requestedClassId) +
-      "\nStatus: Pending approval"
-    );
+    MailApp.sendEmail({
+      to: ADMIN_EMAIL,
+      subject: "New Blue Ridge ELDT training request - " + String(data.fullNameOnLicense || username),
+      name: "Blue Ridge ELDT Website",
+      body: [
+        "A new training request was submitted.",
+        "",
+        "Submitted: " + formatEmailDate_(new Date()),
+        "Full name on license: " + String(data.fullNameOnLicense || ""),
+        "Username: " + String(username || ""),
+        "Date of birth: " + String(data.dob || ""),
+        "Preferred contact: " + String(contact || ""),
+        "License number: " + String(data.licenseNumber || ""),
+        "License state: " + String(licenseState || ""),
+        "Requested training: " + String(cls.title || data.requestedClassId || ""),
+        "Class ID: " + String(data.requestedClassId || ""),
+        "Status: Pending approval",
+        "",
+        "For security, the student's password is not included in this email."
+      ].join("\n")
+    });
   }
 
   return { ok: true, username: username, pendingApproval: true, backendVersion: BACKEND_VERSION };
@@ -925,21 +936,40 @@ function validPreferredContact_(value) {
   return emailOk || phoneOk;
 }
 
-function sendTestEmail_(username, classId, title, score, passed) {
+function formatEmailDate_(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  const timezone = Session.getScriptTimeZone() || "America/New_York";
+  return Utilities.formatDate(date, timezone, "MMMM d, yyyy 'at' h:mm a z");
+}
+
+function sendTestEmail_(username, classId, cls, score, completedAt) {
   if (!ADMIN_EMAIL) return;
+
   const student = findStudent_(username);
   const info = student ? student.obj : {};
-  MailApp.sendEmail(
-    ADMIN_EMAIL,
-    "Blue Ridge ELDT test finished",
-    "Test finished\nScore: " + score +
-    "\nPass/fail: " + (passed ? "pass" : "fail") +
-    "\nClass/training: " + (title || classId) +
-    "\nUsername: " + username +
-    "\nFull name on license: " + (info.fullNameOnLicense || "") +
-    "\nLicense number: " + (info.licenseNumber || "") +
-    "\nLicense state: " + (info.licenseState || "")
-  );
+  MailApp.sendEmail({
+    to: ADMIN_EMAIL,
+    subject: "Blue Ridge ELDT training completed - " + String(info.fullNameOnLicense || username),
+    name: "Blue Ridge ELDT Website",
+    body: [
+      "A student completed their assigned training and passed the final test.",
+      "",
+      "Completed: " + formatEmailDate_(completedAt),
+      "Full name on license: " + String(info.fullNameOnLicense || ""),
+      "Username: " + String(info.username || username || ""),
+      "Date of birth: " + String(info.dob || ""),
+      "Preferred contact: " + String(info.preferredContact || ""),
+      "License number: " + String(info.licenseNumber || ""),
+      "License state: " + String(info.licenseState || ""),
+      "Training completed: " + String((cls && cls.title) || classId || ""),
+      "Class ID: " + String(classId || ""),
+      "Final test score: " + String(score) + "%",
+      "Passing score: " + String((cls && cls.passingScore) || 80) + "%",
+      "Result: Passed",
+      "",
+      "For security, the student's password is not included in this email."
+    ].join("\n")
+  });
 }
 
 function extractYouTubeId_(value) {
