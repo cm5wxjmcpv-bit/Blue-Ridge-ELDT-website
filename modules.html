@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Martinsville CDL Program - Modules</title>
     <script src="config.js?v=20260730-contact1" defer></script>
-    <script src="frontend-api.js" defer></script>
+    <script src="frontend-api.js?v=20260927-hardened1" defer></script>
     <style>
       :root {
         --navy: #17324d;
@@ -170,6 +170,12 @@
         document.getElementById("logoutBtn").addEventListener("click", logout);
         const wrap = document.getElementById("classes");
 
+        function escapeHtml(value) {
+          return String(value === undefined || value === null ? "" : value).replace(/[&<>"']/g, (character) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+          })[character]);
+        }
+
         function renderClass(cls) {
           const st = cls.status || { modules: [] };
           const modules = (st.modules || []).slice().sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
@@ -193,14 +199,14 @@
 
           const card = document.createElement("section");
           card.className = "class-card";
-          card.innerHTML = `<h3>${cls.title}</h3><p class="small">${cls.description || ""}</p><div class="summary"><span class="pill">${done} of ${modules.length} modules complete</span><span class="pill">Passing score: ${passing}%</span><span class="pill">Required watch: ${Math.round(Number(cls.requiredWatchPercent || 0.9) * 100)}%</span></div><h4 style="margin-top:20px">Modules</h4><div class="modules-grid"></div><h4 style="margin-top:20px">Final Test</h4><div class="test-card"><div><b>Knowledge Test</b><div class="small">${testStatusText}</div></div><div>${testAction}</div></div>`;
+          card.innerHTML = `<h3>${escapeHtml(cls.title)}</h3><p class="small">${escapeHtml(cls.description || "")}</p><div class="summary"><span class="pill">${done} of ${modules.length} modules complete</span><span class="pill">Passing score: ${passing}%</span><span class="pill">Required watch: ${Math.round(Number(cls.requiredWatchPercent || 0.9) * 100)}%</span></div><h4 style="margin-top:20px">Modules</h4><div class="modules-grid"></div><h4 style="margin-top:20px">Final Test</h4><div class="test-card"><div><b>Knowledge Test</b><div class="small">${escapeHtml(testStatusText)}</div></div><div>${testAction}</div></div>`;
 
           const grid = card.querySelector(".modules-grid");
           modules.forEach((m, index) => {
             const displayNumber = Number(m.sortOrder || 0) || index + 1;
             const row = document.createElement("div");
             row.className = "module-card";
-            row.innerHTML = `<div><b>${m.title}</b><div class="summary" style="margin-top:10px"><span class="pill">Module ${displayNumber}</span><span class="pill">${Math.round(Number(m.requiredWatchPercent || cls.requiredWatchPercent || 0.9) * 100)}% required</span><span class="badge ${m.complete ? "badge-complete" : "badge-not"}">${m.complete ? "Complete" : "Not Complete"}</span></div></div><a class="open-btn" href="player.html?classId=${encodeURIComponent(cls.id)}&m=${encodeURIComponent(m.id)}">${m.complete ? "Review Module" : "Open Module"}</a>`;
+            row.innerHTML = `<div><b>${escapeHtml(m.title)}</b><div class="summary" style="margin-top:10px"><span class="pill">Module ${displayNumber}</span><span class="pill">${Math.round(Number(m.requiredWatchPercent || cls.requiredWatchPercent || 0.9) * 100)}% required</span><span class="badge ${m.complete ? "badge-complete" : "badge-not"}">${m.complete ? "Complete" : "Not Complete"}</span></div></div><a class="open-btn" href="player.html?classId=${encodeURIComponent(cls.id)}&m=${encodeURIComponent(m.id)}">${m.complete ? "Review Module" : "Open Module"}</a>`;
             grid.appendChild(row);
           });
 

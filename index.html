@@ -6,7 +6,7 @@
   <title>CDL Training Portal - Login</title>
 
   <script src="config.js?v=20260730-contact1" defer></script>
-  <script src="frontend-api.js" defer></script>
+  <script src="frontend-api.js?v=20260927-hardened1" defer></script>
 
   <style>
     :root{
@@ -514,7 +514,7 @@
           <img
             src="logo.png"
             alt="Martinsville CDL Program logo"
-            onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=&quot;brand-fallback&quot;>M</div>';">
+            onerror="if(this.parentElement){this.style.display='none';this.parentElement.innerHTML='<div class=&quot;brand-fallback&quot;>M</div>'}">
         </div>
         <div class="brand-text">
           <h1>CDL Training Portal</h1>
@@ -553,8 +553,9 @@
         </div>
 
         <div class="hero-actions">
-          <a class="hero-btn" href="resources.html">Open Public Resources</a>
+          <a class="hero-btn" href="hazmat.html">Online Hazmat Training — $50</a>
           <a class="hero-btn-secondary" href="#loginCard">Student Sign In</a>
+          <a class="hero-btn-secondary" href="resources.html">Public Resources</a>
         </div>
       </section>
 

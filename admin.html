@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Training Admin</title>
     <script src="config.js?v=20260730-contact1" defer></script>
-    <script src="frontend-api.js" defer></script>
+    <script src="frontend-api.js?v=20260927-hardened1" defer></script>
     <style>
       :root {
         --navy: #17324d;
@@ -104,6 +104,26 @@
         width: auto;
         margin-right: 8px;
       }
+      .status-pill {
+        display: inline-block;
+        padding: 5px 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 6px;
+      }
+      .status-pending {
+        background: #fff4cc;
+        color: #7a5b00;
+      }
+      .status-done {
+        background: #e8f5ec;
+        color: #20683a;
+      }
+      .status-waiting {
+        background: #eef2f6;
+        color: #5b6570;
+      }
       @media (max-width: 800px) {
         .grid {
           grid-template-columns: 1fr;
@@ -156,6 +176,7 @@
                 <th>License Info</th>
                 <th>Contact</th>
                 <th>Classes</th>
+                <th>TPR</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -310,8 +331,20 @@
           pendingSupported = true;
         const $ = (id) => document.getElementById(id);
         function msg(id, t, ok = true) {
-          $(id).innerHTML =
-            `<div class="${ok ? "success" : "error"}">${t}</div>`;
+          const item = document.createElement("div");
+          item.className = ok ? "success" : "error";
+          item.textContent = t;
+          $(id).replaceChildren(item);
+        }
+        function tableTextCell(lines, boldFirst = false) {
+          const cell = document.createElement("td");
+          lines.forEach((line, index) => {
+            if (index) cell.appendChild(document.createElement("br"));
+            const node = index === 0 && boldFirst ? document.createElement("b") : document.createElement("span");
+            node.textContent = String(line === undefined || line === null ? "" : line);
+            cell.appendChild(node);
+          });
+          return cell;
         }
         async function loadAll() {
           classes = (await apiListClasses(false)).classes || [];
@@ -396,10 +429,20 @@
               })
               .join(", ");
             const action = document.createElement("td");
-            const review = document.createElement("button");
-            review.textContent = "Review";
-            review.addEventListener("click", () => editStudent(s, true));
-            action.appendChild(review);
+            const isHazmat = (s.classes || []).map(String).includes("hazmat");
+            const isSelfServiceHazmat = isHazmat && !!String(s.enrollmentId || "").trim();
+            const isPaid = String(s.paymentStatus || "").toLowerCase() === "paid";
+            if (isSelfServiceHazmat && !isPaid) {
+              const waiting = document.createElement("span");
+              waiting.className = "status-pill status-waiting";
+              waiting.textContent = "Waiting for Square payment";
+              action.appendChild(waiting);
+            } else {
+              const review = document.createElement("button");
+              review.textContent = "Review";
+              review.addEventListener("click", () => editStudent(s, true));
+              action.appendChild(review);
+            }
             tr.append(user, info, contact, assigned, action);
             body.appendChild(tr);
           });
@@ -411,10 +454,79 @@
             .filter((s) => JSON.stringify(s).toLowerCase().includes(q))
             .forEach((s) => {
               const tr = document.createElement("tr");
-              tr.innerHTML = `<td>${s.username}</td><td><span class="pw hidden"></span><button class="secondary showpw">Show</button></td><td>${s.fullNameOnLicense || ""}<br>${s.licenseNumber || ""}</td><td class="contact"></td><td>${(s.classes || []).join(", ")}</td><td></td>`;
+              const usernameCell = document.createElement("td");
+              usernameCell.textContent = s.username || "";
+              const passwordCell = document.createElement("td");
+              const passwordText = document.createElement("span");
+              passwordText.className = "pw hidden";
+              const showPassword = document.createElement("button");
+              showPassword.className = "secondary showpw";
+              showPassword.textContent = "Show";
+              passwordCell.append(passwordText, showPassword);
+              const licenseCell = document.createElement("td");
+              licenseCell.append(document.createTextNode(s.fullNameOnLicense || ""), document.createElement("br"), document.createTextNode(s.licenseNumber || ""));
+              const contactCell = document.createElement("td");
+              contactCell.className = "contact";
+              const classesCell = document.createElement("td");
+              classesCell.textContent = (s.classes || []).join(", ");
+              const tprCellElement = document.createElement("td");
+              tprCellElement.className = "tpr";
+              const actionsCell = document.createElement("td");
+              actionsCell.className = "actions";
+              tr.append(usernameCell, passwordCell, licenseCell, contactCell, classesCell, tprCellElement, actionsCell);
               tr.querySelector(".pw").textContent = s.password || "";
               tr.querySelector(".contact").textContent =
                 s.preferredContact || "Not provided";
+
+              const tprCell = tr.querySelector(".tpr");
+              const isHazmat = (s.classes || []).map(String).includes("hazmat");
+              const tprStatus = String(s.tprStatus || "").toLowerCase();
+              if (!isHazmat) {
+                tprCell.textContent = "—";
+              } else if (tprStatus === "pending") {
+                const pill = document.createElement("div");
+                pill.className = "status-pill status-pending";
+                pill.textContent = "TPR Pending";
+                tprCell.appendChild(pill);
+
+                if (s.trainingCompletedAt) {
+                  const when = document.createElement("div");
+                  when.className = "small";
+                  when.textContent = "Completed " + new Date(s.trainingCompletedAt).toLocaleString();
+                  tprCell.appendChild(when);
+                }
+
+                const mark = document.createElement("button");
+                mark.className = "secondary";
+                mark.textContent = "Mark Submitted";
+                mark.style.marginTop = "6px";
+                mark.addEventListener("click", async () => {
+                  if (!confirm("Mark this Hazmat completion as submitted to the FMCSA TPR?")) return;
+                  const res = await apiPost("markTprSubmitted", { username: s.username });
+                  if (!res.ok) {
+                    alert(res.error || "Unable to update TPR status.");
+                    return;
+                  }
+                  await loadAll();
+                });
+                tprCell.appendChild(mark);
+              } else if (tprStatus === "submitted") {
+                const pill = document.createElement("div");
+                pill.className = "status-pill status-done";
+                pill.textContent = "TPR Submitted";
+                tprCell.appendChild(pill);
+                if (s.tprSubmittedAt) {
+                  const when = document.createElement("div");
+                  when.className = "small";
+                  when.textContent = new Date(s.tprSubmittedAt).toLocaleString();
+                  tprCell.appendChild(when);
+                }
+              } else {
+                const pill = document.createElement("div");
+                pill.className = "status-pill status-waiting";
+                pill.textContent = "Not ready";
+                tprCell.appendChild(pill);
+              }
               tr.querySelector(".showpw").addEventListener("click", (e) => {
                 const pw = tr.querySelector(".pw");
                 pw.classList.toggle("hidden");
@@ -429,7 +541,7 @@
               arch.textContent = "Archive";
               arch.className = "danger";
               arch.addEventListener("click", () => archiveStudent(s.username));
-              tr.lastChild.append(edit, arch);
+              tr.querySelector(".actions").append(edit, arch);
               $("studentList").appendChild(tr);
             });
         }
@@ -523,7 +635,11 @@
           $("classList").innerHTML = "";
           classes.forEach((c) => {
             const tr = document.createElement("tr");
-            tr.innerHTML = `<td><b>${c.title}</b><br>${c.id}<br>${c.description || ""}</td><td>Pass ${c.passingScore}% · Watch ${c.requiredWatchPercent} · Sort ${c.sortOrder} · ${c.active}</td><td></td>`;
+            tr.append(
+              tableTextCell([c.title, c.id, c.description || ""], true),
+              tableTextCell([`Pass ${c.passingScore}% · Watch ${c.requiredWatchPercent} · Sort ${c.sortOrder} · ${c.active}`]),
+              document.createElement("td"),
+            );
             const e = document.createElement("button");
             e.textContent = "Edit";
             e.addEventListener("click", () => {
@@ -563,7 +679,11 @@
           $("moduleList").innerHTML = "";
           modules.forEach((m) => {
             const tr = document.createElement("tr");
-            tr.innerHTML = `<td><b>${m.title}</b><br>${m.classId} · ${m.youtubeId}</td><td>${m.active}</td><td></td>`;
+            tr.append(
+              tableTextCell([m.title, `${m.classId} · ${m.youtubeId}`], true),
+              tableTextCell([m.active]),
+              document.createElement("td"),
+            );
             const e = document.createElement("button");
             e.textContent = "Edit";
             e.addEventListener("click", () => {
@@ -606,7 +726,11 @@
             .filter((q) => !f || q.classId === f)
             .forEach((q) => {
               const tr = document.createElement("tr");
-              tr.innerHTML = `<td><b>${q.question}</b><br>${q.classId}</td><td>${q.active}</td><td></td>`;
+              tr.append(
+                tableTextCell([q.question, q.classId], true),
+                tableTextCell([q.active]),
+                document.createElement("td"),
+              );
               const e = document.createElement("button");
               e.textContent = "Edit";
               e.addEventListener("click", () => {
@@ -659,7 +783,7 @@
           loadAll();
         }
         $("loginBtn").addEventListener("click", async () => {
-          const data = await apiGet("adminLogin", {
+          const data = await apiPost("adminLogin", {
             username: $("adminUser").value,
             password: $("adminPass").value,
           });
