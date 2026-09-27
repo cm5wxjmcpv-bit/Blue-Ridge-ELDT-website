@@ -26,7 +26,7 @@ const STUDENT_HEADERS = [
   "username", "password", "updatedAt", "fullNameOnLicense", "firstName", "middleName", "lastName",
   "licenseNumber", "dob", "active", "archivedAt", "preferredContact", "email", "phone", "licenseState",
   "enrollmentId", "paymentStatus", "paymentOrderId", "paymentId", "paymentAmount", "paymentCompletedAt",
-  "tprStatus", "trainingCompletedAt"
+  "tprStatus", "trainingCompletedAt", "tprSubmittedAt"
 ];
 
 const SIGNUP_REQUEST_HEADERS = [
@@ -202,6 +202,10 @@ function doPost(e) {
           break;
         case "verifyhazmatpayment":
           result = verifyHazmatPayment_(data.enrollmentId);
+          break;
+        case "marktprsubmitted":
+          requireAdminToken_(data.adminToken);
+          result = markTprSubmitted_(data.username);
           break;
         case "submitsignuprequest":
           result = submitSignupRequest_(data);
@@ -666,6 +670,14 @@ function updateStudent_(data) {
   if (!student) return { ok: false, error: "Student not found" };
   if (!data.password) return { ok: false, error: "Missing password" };
 
+  const assigned = assignedClassIds_(data.username);
+  const requestedClasses = Array.isArray(data.classes) ? data.classes.map(String) : assigned;
+  const selfServiceHazmat = !!String(student.obj.enrollmentId || "").trim() &&
+    (assigned.indexOf(HAZMAT_CLASS_ID) !== -1 || requestedClasses.indexOf(HAZMAT_CLASS_ID) !== -1);
+  if (selfServiceHazmat && String(student.obj.paymentStatus || "").toLowerCase() !== "paid") {
+    return { ok: false, error: "Hazmat self-service enrollment cannot be activated until Square payment is confirmed." };
+  }
+
   const sheet = sh_(STUDENTS_SHEET);
   setField_(sheet, student.row, "password", data.password);
   setField_(sheet, student.row, "updatedAt", new Date());
@@ -685,6 +697,11 @@ function approveStudent_(username) {
   const student = findStudent_(username);
   if (!student) return { ok: false, error: "Student not found" };
   if (String(student.obj.archivedAt || "").trim()) return { ok: false, error: "Archived profiles cannot be approved" };
+  if (String(student.obj.enrollmentId || "").trim() &&
+      assignedClassIds_(username).indexOf(HAZMAT_CLASS_ID) !== -1 &&
+      String(student.obj.paymentStatus || "").toLowerCase() !== "paid") {
+    return { ok: false, error: "Hazmat self-service enrollment cannot be activated until Square payment is confirmed." };
+  }
   const sheet = sh_(STUDENTS_SHEET);
   setField_(sheet, student.row, "active", true);
   setField_(sheet, student.row, "updatedAt", new Date());
@@ -882,10 +899,15 @@ function scriptProperty_(name, required) {
 }
 
 function squareConfig_() {
+  const environment = String(scriptProperty_("SQUARE_ENVIRONMENT", false) || "production").toLowerCase();
+  if (["production", "sandbox"].indexOf(environment) === -1) {
+    throw new Error("SQUARE_ENVIRONMENT must be production or sandbox.");
+  }
   return {
     accessToken: scriptProperty_("SQUARE_ACCESS_TOKEN", true),
     locationId: scriptProperty_("SQUARE_LOCATION_ID", true),
-    redirectUrl: scriptProperty_("HAZMAT_REDIRECT_URL", false) || HAZMAT_DEFAULT_REDIRECT_URL
+    redirectUrl: scriptProperty_("HAZMAT_REDIRECT_URL", false) || HAZMAT_DEFAULT_REDIRECT_URL,
+    environment: environment
   };
 }
 
@@ -902,7 +924,10 @@ function squareRequest_(method, path, body) {
   };
   if (body !== undefined && body !== null) options.payload = JSON.stringify(body);
 
-  const response = UrlFetchApp.fetch("https://connect.squareup.com" + path, options);
+  const baseUrl = cfg.environment === "sandbox"
+    ? "https://connect.squareupsandbox.com"
+    : "https://connect.squareup.com";
+  const response = UrlFetchApp.fetch(baseUrl + path, options);
   const code = response.getResponseCode();
   const text = response.getContentText() || "{}";
   let parsed;
@@ -1185,7 +1210,27 @@ function markHazmatTprPending_(username, completedAt) {
   const sheet = sh_(STUDENTS_SHEET);
   setField_(sheet, student.row, "tprStatus", "pending");
   setField_(sheet, student.row, "trainingCompletedAt", completedAt || new Date());
+  setField_(sheet, student.row, "tprSubmittedAt", "");
   setField_(sheet, student.row, "updatedAt", new Date());
+}
+
+function markTprSubmitted_(username) {
+  ensureHazmatHeaders_();
+  const student = findStudent_(username);
+  if (!student) return { ok: false, error: "Student not found" };
+  if (assignedClassIds_(username).indexOf(HAZMAT_CLASS_ID) === -1) {
+    return { ok: false, error: "Student is not assigned to Hazmat training" };
+  }
+  if (String(student.obj.tprStatus || "").toLowerCase() !== "pending") {
+    return { ok: false, error: "This student is not currently waiting for TPR submission" };
+  }
+
+  const now = new Date();
+  const sheet = sh_(STUDENTS_SHEET);
+  setField_(sheet, student.row, "tprStatus", "submitted");
+  setField_(sheet, student.row, "tprSubmittedAt", now);
+  setField_(sheet, student.row, "updatedAt", now);
+  return { ok: true, username: student.obj.username, tprStatus: "submitted", tprSubmittedAt: now };
 }
 
 function submitSignupRequest_(data) {
