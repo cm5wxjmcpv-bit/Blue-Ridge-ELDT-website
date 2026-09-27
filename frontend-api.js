@@ -209,6 +209,14 @@ async function apiSubmitSignupRequest(payload) {
   return apiPost("submitSignupRequest", payload);
 }
 
+async function apiStartHazmatCheckout(payload) {
+  return apiPost("startHazmatCheckout", payload);
+}
+
+async function apiVerifyHazmatPayment(enrollmentId) {
+  return apiPost("verifyHazmatPayment", { enrollmentId });
+}
+
 function allModulesComplete(status) {
   if (!status || !Array.isArray(status.modules)) return false;
   return status.modules.length > 0 && status.modules.every(module => !!module.complete);
