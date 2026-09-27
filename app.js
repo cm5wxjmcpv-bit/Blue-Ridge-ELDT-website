@@ -13,6 +13,7 @@ const STUDENT_CLASSES_SHEET = "StudentClasses";
 const PROGRESS_SHEET = "Progress";
 const TEST_RESULTS_SHEET = "TestResults";
 const SIGNUP_REQUESTS_SHEET = "SignupRequests";
+const HAZMAT_CHECKOUT_AUDIT_SHEET = "HazmatCheckoutAudit";
 
 const DEFAULT_CLASS_ID = "class-a-b";
 const HAZMAT_CLASS_ID = "hazmat";
@@ -22,13 +23,16 @@ const HAZMAT_RECONCILIATION_LIMIT = 25;
 const SQUARE_API_VERSION = "2026-09-16";
 const HAZMAT_DEFAULT_REDIRECT_URL = "https://blueridgeeldt.com/hazmat-payment-complete.html";
 const ADMIN_EMAIL = "Blueridgeeldt@gmail.com";
-const BACKEND_VERSION = "2026-09-27-blue-ridge-v7-hazmat-checkout";
+const BACKEND_VERSION = "2026-09-27-blue-ridge-v8-hazmat-recovery";
+const LEGACY_COMPATIBILITY_FLAG = "ENABLE_LEGACY_ROLLOUT_COMPATIBILITY";
+const LEGACY_COMPATIBILITY_EXPIRY = "LEGACY_ROLLOUT_COMPATIBILITY_EXPIRES_AT";
 
 const STUDENT_HEADERS = [
   "username", "password", "updatedAt", "fullNameOnLicense", "firstName", "middleName", "lastName",
   "licenseNumber", "dob", "active", "archivedAt", "preferredContact", "email", "phone", "licenseState",
   "enrollmentId", "paymentStatus", "paymentOrderId", "paymentId", "paymentAmount", "paymentCompletedAt",
   "paymentLinkId", "checkoutCreatedAt", "checkoutExpiresAt", "originalUsername",
+  "checkoutError",
   "accessEmailSentAt", "accessEmailError", "completionEmailSentAt", "completionEmailClassIds", "completionEmailError",
   "tprStatus", "trainingCompletedAt", "tprSubmittedAt"
 ];
@@ -37,7 +41,10 @@ const SIGNUP_REQUEST_HEADERS = [
   "createdAt", "enrollmentId", "username", "fullNameOnLicense", "firstName", "middleName", "lastName",
   "licenseNumber", "dob", "requestedClassId", "requestedClassTitle", "status", "preferredContact",
   "email", "phone", "licenseState", "paymentStatus", "paymentOrderId", "paymentId", "paymentAmount",
-  "paymentCompletedAt", "paymentLinkId", "checkoutExpiresAt"
+  "paymentCompletedAt", "paymentLinkId", "checkoutExpiresAt", "checkoutError"
+];
+const HAZMAT_CHECKOUT_AUDIT_HEADERS = [
+  "createdAt", "enrollmentId", "username", "event", "paymentLinkId", "paymentOrderId", "detail"
 ];
 const AUTH_TTL_SECONDS = 21600;
 
@@ -103,8 +110,20 @@ function doGet(e) {
 
       switch (action) {
         case "validatelogin":
+          if (!legacyRolloutCompatibilityEnabled_()) {
+            result = { ok: false, error: "Login requests must use POST." };
+            break;
+          }
+          noteLegacyCompatibilityUse_("student_get_login", p.username, "");
+          result = addLegacyCompatibilityNotice_(validateLogin_(p.username, p.password));
+          break;
         case "adminlogin":
-          result = { ok: false, error: "Login requests must use POST." };
+          if (!legacyRolloutCompatibilityEnabled_()) {
+            result = { ok: false, error: "Login requests must use POST." };
+            break;
+          }
+          noteLegacyCompatibilityUse_("admin_get_login", p.username, "");
+          result = addLegacyCompatibilityNotice_(adminLogin_(p.username, p.password));
           break;
         case "liststudents":
           requireAdminToken_(p.adminToken);
@@ -365,6 +384,18 @@ function setField_(sheet, row, header, value) {
   clearSheetCache_(sheet.getName());
 }
 
+function setFields_(sheet, row, fields) {
+  const headers = headers_(sheet);
+  const range = sheet.getRange(row, 1, 1, headers.length);
+  const values = range.getValues()[0];
+  Object.keys(fields || {}).forEach(function(header) {
+    const index = headers.indexOf(header);
+    if (index !== -1) values[index] = fields[header];
+  });
+  range.setValues([values]);
+  clearSheetCache_(sheet.getName());
+}
+
 function cloneObj_(obj) {
   return Object.assign({}, obj || {});
 }
@@ -403,6 +434,7 @@ function setupSheets_() {
   ensureHeaders_(PROGRESS_SHEET, ["username", "classId", "moduleId", "complete", "updatedAt"]);
   ensureHeaders_(TEST_RESULTS_SHEET, ["username", "classId", "complete", "score", "passed", "updatedAt"]);
   ensureHeaders_(SIGNUP_REQUESTS_SHEET, SIGNUP_REQUEST_HEADERS);
+  ensureHeaders_(HAZMAT_CHECKOUT_AUDIT_SHEET, HAZMAT_CHECKOUT_AUDIT_HEADERS);
   seedRows_(CLASSES_SHEET, DEFAULT_CLASSES);
   seedRows_(MODULES_SHEET, DEFAULT_MODULES);
   return { ok: true, version: BACKEND_VERSION };
@@ -868,7 +900,27 @@ function allModulesComplete_(modules) {
 }
 
 function logTest_(username, classId, complete, score) {
-  throw new Error("Tests are graded by the server. Refresh the test page and submit your answers again.");
+  const id = String(classId || DEFAULT_CLASS_ID);
+  if (id.trim().toLowerCase() === HAZMAT_CLASS_ID) {
+    throw new Error("Hazmat tests are graded by the server. Refresh the test page and submit your answers again.");
+  }
+  if (!legacyRolloutCompatibilityEnabled_()) {
+    throw new Error("Tests are graded by the server. Refresh the test page and submit your answers again.");
+  }
+
+  const numericScore = Number(score);
+  if (!isFinite(numericScore) || numericScore < 0 || numericScore > 100) {
+    throw new Error("Invalid legacy test score");
+  }
+
+  return withScriptLock_(function() {
+    const cls = requireAssignedClass_(username, id);
+    noteLegacyCompatibilityUse_("non_hazmat_log_test", username, id);
+    const result = recordTestAttempt_(username, id, complete_(complete), numericScore, cls);
+    result.legacyCompatibility = true;
+    result.legacyCompatibilityExpiresAt = scriptProperty_(LEGACY_COMPATIBILITY_EXPIRY, false);
+    return result;
+  });
 }
 
 function submitTestAnswers_(username, classId, answers) {
@@ -1012,12 +1064,31 @@ function deactivateById_(sheetName, id) {
 function ensureHazmatHeaders_() {
   ensureHeaders_(STUDENTS_SHEET, STUDENT_HEADERS);
   ensureHeaders_(SIGNUP_REQUESTS_SHEET, SIGNUP_REQUEST_HEADERS);
+  ensureHeaders_(HAZMAT_CHECKOUT_AUDIT_SHEET, HAZMAT_CHECKOUT_AUDIT_HEADERS);
 }
 
 function scriptProperty_(name, required) {
   const value = String(PropertiesService.getScriptProperties().getProperty(name) || "").trim();
   if (required && !value) throw new Error("Missing required script property: " + name);
   return value;
+}
+
+function legacyRolloutCompatibilityEnabled_(now) {
+  if (String(scriptProperty_(LEGACY_COMPATIBILITY_FLAG, false)).toLowerCase() !== "true") return false;
+  const expiresAt = dateOrNull_(scriptProperty_(LEGACY_COMPATIBILITY_EXPIRY, false));
+  return !!expiresAt && expiresAt.getTime() > (now || new Date()).getTime();
+}
+
+function addLegacyCompatibilityNotice_(result) {
+  const copy = cloneObj_(result);
+  copy.legacyCompatibility = true;
+  copy.legacyCompatibilityExpiresAt = scriptProperty_(LEGACY_COMPATIBILITY_EXPIRY, false);
+  return copy;
+}
+
+function noteLegacyCompatibilityUse_(action, username, classId) {
+  console.warn("Temporary legacy compatibility used: action=" + String(action || "") +
+    ", username=" + String(username || "") + ", classId=" + String(classId || ""));
 }
 
 function squareConfig_() {
@@ -1136,10 +1207,158 @@ function updateSignupRequestByEnrollmentId_(enrollmentId, fields) {
     return String(row.obj.enrollmentId || "").trim() === key;
   });
   if (!item) return;
-  const sheet = sh_(SIGNUP_REQUESTS_SHEET);
-  Object.keys(fields || {}).forEach(function(field) {
-    if (headers_(sheet).indexOf(field) !== -1) setField_(sheet, item.row, field, fields[field]);
+  setFields_(sh_(SIGNUP_REQUESTS_SHEET), item.row, fields);
+}
+
+function recordHazmatCheckoutAudit_(student, event, detail, link) {
+  const obj = student && student.obj ? student.obj : (student || {});
+  appendObject_(HAZMAT_CHECKOUT_AUDIT_SHEET, {
+    createdAt: new Date(),
+    enrollmentId: obj.enrollmentId || "",
+    username: obj.username || obj.originalUsername || "",
+    event: event,
+    paymentLinkId: link && link.id || obj.paymentLinkId || "",
+    paymentOrderId: link && link.order_id || obj.paymentOrderId || "",
+    detail: String(detail || "").slice(0, 500)
   });
+}
+
+function recordHazmatCheckoutAuditSafely_(student, event, detail, link) {
+  try {
+    recordHazmatCheckoutAudit_(student, event, detail, link);
+  } catch (err) {
+    console.error("Hazmat checkout audit write failed for " + String(student && student.obj && student.obj.enrollmentId || "") +
+      ": " + String(err && err.message ? err.message : err));
+  }
+}
+
+function signupRequestByEnrollmentId_(enrollmentId) {
+  const key = String(enrollmentId || "").trim();
+  if (!key) return null;
+  return rowObjs_(SIGNUP_REQUESTS_SHEET).find(function(row) {
+    return String(row.obj.enrollmentId || "").trim() === key;
+  }) || null;
+}
+
+function ensureHazmatProvisionalRecords_(student, classTitle) {
+  const obj = student.obj;
+  saveAssignments_(obj.username, [HAZMAT_CLASS_ID]);
+  clearSheetCache_(SIGNUP_REQUESTS_SHEET);
+  if (!signupRequestByEnrollmentId_(obj.enrollmentId)) {
+    appendObject_(SIGNUP_REQUESTS_SHEET, {
+      createdAt: obj.checkoutCreatedAt || obj.updatedAt || new Date(),
+      enrollmentId: obj.enrollmentId,
+      username: obj.username,
+      fullNameOnLicense: obj.fullNameOnLicense,
+      firstName: obj.firstName,
+      middleName: obj.middleName,
+      lastName: obj.lastName,
+      licenseNumber: obj.licenseNumber,
+      dob: obj.dob,
+      requestedClassId: HAZMAT_CLASS_ID,
+      requestedClassTitle: classTitle || "Hazmat Endorsement",
+      status: "creating_checkout",
+      preferredContact: obj.email || obj.preferredContact,
+      email: obj.email || obj.preferredContact,
+      phone: obj.phone,
+      licenseState: obj.licenseState,
+      paymentStatus: "creating_checkout",
+      checkoutExpiresAt: obj.checkoutExpiresAt,
+      checkoutError: ""
+    });
+  }
+}
+
+function persistHazmatCheckoutLink_(student, link, status, errorMessage) {
+  const paymentStatus = status || "awaiting_payment";
+  const now = new Date();
+  setFields_(sh_(STUDENTS_SHEET), student.row, {
+    paymentStatus: paymentStatus,
+    paymentOrderId: link.order_id,
+    paymentLinkId: link.id,
+    checkoutError: String(errorMessage || "").slice(0, 500),
+    updatedAt: now
+  });
+  updateSignupRequestByEnrollmentId_(student.obj.enrollmentId, {
+    status: paymentStatus,
+    paymentStatus: paymentStatus,
+    paymentOrderId: link.order_id,
+    paymentLinkId: link.id,
+    checkoutError: String(errorMessage || "").slice(0, 500)
+  });
+}
+
+function hazmatCheckoutResponse_(student, link, resumed) {
+  return {
+    ok: true,
+    resumed: !!resumed,
+    enrollmentId: student.obj.enrollmentId,
+    checkoutUrl: link.url,
+    orderId: link.order_id,
+    amount: HAZMAT_PRICE_CENTS
+  };
+}
+
+function recoverHazmatCheckoutPersistenceFailure_(student, link, cfg, persistenceError) {
+  const detail = String(persistenceError && persistenceError.message ? persistenceError.message : persistenceError);
+  recordHazmatCheckoutAuditSafely_(student, "checkout_persistence_failed", detail, link);
+
+  try {
+    persistHazmatCheckoutLink_(student, link, "checkout_recovery", detail);
+  } catch (recoveryWriteError) {
+    recordHazmatCheckoutAuditSafely_(student, "recovery_metadata_write_failed",
+      String(recoveryWriteError && recoveryWriteError.message ? recoveryWriteError.message : recoveryWriteError), link);
+    throw new Error("Checkout was created but could not be saved. Retry with the same username, password, and email; no new Square order will be created.");
+  }
+
+  const recoverable = Object.assign({}, student.obj, {
+    paymentStatus: "checkout_recovery",
+    paymentOrderId: link.order_id,
+    paymentLinkId: link.id
+  });
+  let inspection;
+  try {
+    inspection = inspectHazmatPayment_(recoverable, cfg);
+  } catch (inspectionError) {
+    recordHazmatCheckoutAuditSafely_(student, "recovery_payment_check_failed",
+      String(inspectionError && inspectionError.message ? inspectionError.message : inspectionError), link);
+    throw new Error("Checkout recovery is pending. Retry with the same username, password, and email.");
+  }
+
+  clearSheetCache_(STUDENTS_SHEET);
+  const durableStudent = findStudentByEnrollmentId_(student.obj.enrollmentId) || student;
+  if (inspection.paid) {
+    activateHazmatPayment_(durableStudent, inspection);
+    recordHazmatCheckoutAuditSafely_(durableStudent, "payment_recovered_after_persistence_failure", "", link);
+    return { ok: true, paid: true, active: true, username: durableStudent.obj.username };
+  }
+
+  try {
+    squareRequest_("delete", "/v2/online-checkout/payment-links/" + encodeURIComponent(link.id));
+  } catch (cleanupError) {
+    const cleanupDetail = String(cleanupError && cleanupError.message ? cleanupError.message : cleanupError);
+    try {
+      persistHazmatCheckoutLink_(durableStudent, link, "checkout_recovery", "Cleanup failed: " + cleanupDetail);
+    } catch (ignored) {}
+    recordHazmatCheckoutAuditSafely_(durableStudent, "checkout_cleanup_failed", cleanupDetail, link);
+    throw new Error("Checkout recovery is pending. Retry with the same username, password, and email to resume the existing Square checkout.");
+  }
+
+  recordHazmatCheckoutAuditSafely_(durableStudent, "unpaid_checkout_cleaned_up", detail, link);
+  expireHazmatEnrollment_(durableStudent, true);
+  throw new Error("The checkout could not be saved and was safely canceled. Retry to create a new checkout.");
+}
+
+function createOrRecoverHazmatPaymentLink_(student, email, cfg, resumed) {
+  const link = createHazmatPaymentLink_(student.obj.enrollmentId, email, cfg);
+  recordHazmatCheckoutAuditSafely_(student, resumed ? "square_link_recovered" : "square_link_created", "", link);
+  try {
+    persistHazmatCheckoutLink_(student, link, "awaiting_payment", "");
+    recordHazmatCheckoutAuditSafely_(student, "checkout_ready", "", link);
+    return hazmatCheckoutResponse_(student, link, resumed);
+  } catch (err) {
+    return recoverHazmatCheckoutPersistenceFailure_(student, link, cfg, err);
+  }
 }
 
 function startHazmatCheckout_(data) {
@@ -1203,10 +1422,21 @@ function startHazmatCheckout_(data) {
       }
       if (active_(existing.obj.active)) throw new Error("This account requires manual review.");
 
-      if (paymentStatus === "awaiting_payment") {
+      if (paymentStatus === "creating_checkout") {
+        ensureHazmatProvisionalRecords_(existing, cls.title);
+        recordHazmatCheckoutAuditSafely_(existing, "provisional_retry", "Reusing the stable enrollment idempotency key.");
+        return createOrRecoverHazmatPaymentLink_(existing, email, cfg, true);
+      }
+
+      if (paymentStatus === "awaiting_payment" || paymentStatus === "checkout_recovery") {
+        if (!String(existing.obj.paymentOrderId || "").trim() || !String(existing.obj.paymentLinkId || "").trim()) {
+          ensureHazmatProvisionalRecords_(existing, cls.title);
+          return createOrRecoverHazmatPaymentLink_(existing, email, cfg, true);
+        }
         const inspection = inspectHazmatPayment_(existing.obj, cfg);
         if (inspection.paid) {
           activateHazmatPayment_(existing, inspection);
+          recordHazmatCheckoutAuditSafely_(existing, "payment_recovered_on_retry", "");
           return { ok: true, paid: true, active: true, username: existing.obj.username };
         }
         if (!checkoutExpired_(existing.obj, new Date()) && !inspection.canceled) {
@@ -1216,13 +1446,11 @@ function startHazmatCheckout_(data) {
           if (!existingLink || !existingLink.url || String(existingLink.order_id || "") !== String(existing.obj.paymentOrderId || "")) {
             throw new Error("The existing checkout could not be resumed. Please try again later.");
           }
-          return {
-            ok: true,
-            resumed: true,
-            enrollmentId: existing.obj.enrollmentId,
-            checkoutUrl: existingLink.url,
-            amount: HAZMAT_PRICE_CENTS
-          };
+          if (paymentStatus === "checkout_recovery") {
+            persistHazmatCheckoutLink_(existing, existingLink, "awaiting_payment", "");
+            recordHazmatCheckoutAuditSafely_(existing, "checkout_recovered_on_retry", "", existingLink);
+          }
+          return hazmatCheckoutResponse_(existing, existingLink, true);
         }
 
         const wasExpired = expireHazmatEnrollment_(existing, inspection.canceled);
@@ -1242,7 +1470,6 @@ function startHazmatCheckout_(data) {
     const enrollmentId = Utilities.getUuid().replace(/-/g, "");
     const checkoutCreatedAt = new Date();
     const checkoutExpiresAt = new Date(checkoutCreatedAt.getTime() + HAZMAT_CHECKOUT_TTL_MS);
-    const link = createHazmatPaymentLink_(enrollmentId, email, cfg);
 
     appendObject_(STUDENTS_SHEET, {
       username: username,
@@ -1261,11 +1488,12 @@ function startHazmatCheckout_(data) {
       phone: phone,
       licenseState: licenseState,
       enrollmentId: enrollmentId,
-      paymentStatus: "awaiting_payment",
-      paymentOrderId: link.order_id,
-      paymentLinkId: link.id,
+      paymentStatus: "creating_checkout",
+      paymentOrderId: "",
+      paymentLinkId: "",
       checkoutCreatedAt: checkoutCreatedAt,
       checkoutExpiresAt: checkoutExpiresAt,
+      checkoutError: "",
       paymentId: "",
       paymentAmount: "",
       paymentCompletedAt: "",
@@ -1273,38 +1501,12 @@ function startHazmatCheckout_(data) {
       trainingCompletedAt: ""
     });
 
-    saveAssignments_(username, [HAZMAT_CLASS_ID]);
-
-    appendObject_(SIGNUP_REQUESTS_SHEET, {
-      createdAt: new Date(),
-      enrollmentId: enrollmentId,
-      username: username,
-      fullNameOnLicense: fullName,
-      firstName: firstName,
-      middleName: middleName,
-      lastName: lastName,
-      licenseNumber: licenseNumber,
-      dob: dob,
-      requestedClassId: HAZMAT_CLASS_ID,
-      requestedClassTitle: cls.title || "Hazmat Endorsement",
-      status: "awaiting_payment",
-      preferredContact: email,
-      email: email,
-      phone: phone,
-      licenseState: licenseState,
-      paymentStatus: "awaiting_payment",
-      paymentOrderId: link.order_id,
-      paymentLinkId: link.id,
-      checkoutExpiresAt: checkoutExpiresAt
-    });
-
-    return {
-      ok: true,
-      enrollmentId: enrollmentId,
-      checkoutUrl: link.url,
-      orderId: link.order_id,
-      amount: HAZMAT_PRICE_CENTS
-    };
+    clearSheetCache_(STUDENTS_SHEET);
+    const provisional = findStudentByEnrollmentId_(enrollmentId);
+    if (!provisional) throw new Error("The provisional enrollment could not be verified. Square was not contacted.");
+    ensureHazmatProvisionalRecords_(provisional, cls.title);
+    recordHazmatCheckoutAudit_(provisional, "provisional_enrollment_created", "Square has not been contacted yet.");
+    return createOrRecoverHazmatPaymentLink_(provisional, email, cfg, false);
   });
 }
 
@@ -1465,7 +1667,8 @@ function verifyHazmatPayment_(enrollmentId) {
       activateHazmatPayment_(student, paidInspection);
       return { ok: true, paid: true, active: true, username: student.obj.username };
     }
-    if (String(student.obj.paymentStatus || "").toLowerCase() !== "awaiting_payment") {
+    const paymentStatus = String(student.obj.paymentStatus || "").toLowerCase();
+    if (["awaiting_payment", "checkout_recovery"].indexOf(paymentStatus) === -1) {
       return { ok: false, expired: true, error: "This checkout is no longer active. Start a new enrollment checkout." };
     }
 
@@ -1484,7 +1687,7 @@ function runHazmatPaymentReconciliation() {
     ensureHazmatHeaders_();
     const allCandidates = rowObjs_(STUDENTS_SHEET).filter(function(row) {
       return !!String(row.obj.enrollmentId || "").trim() &&
-        String(row.obj.paymentStatus || "").toLowerCase() === "awaiting_payment" &&
+        ["awaiting_payment", "checkout_recovery"].indexOf(String(row.obj.paymentStatus || "").toLowerCase()) !== -1 &&
         !active_(row.obj.active);
     }).sort(function(a, b) {
       const aTime = checkoutExpiryDate_(a.obj);
@@ -1518,7 +1721,8 @@ function runHazmatPaymentReconciliation() {
           return withScriptLock_(function() {
             clearSheetCache_(STUDENTS_SHEET);
             const student = findStudentByEnrollmentId_(candidate.enrollmentId);
-            if (!student || String(student.obj.paymentStatus || "").toLowerCase() !== "awaiting_payment") return verified;
+            if (!student || ["awaiting_payment", "checkout_recovery"].indexOf(
+              String(student.obj.paymentStatus || "").toLowerCase()) === -1) return verified;
             const wasExpired = expireHazmatEnrollment_(student, !!(verified && verified.canceled));
             if (wasExpired === "manual_review") return { ok: true, manualReview: true };
             return wasExpired ? { ok: true, expired: true } : { ok: true, paid: true, active: true };

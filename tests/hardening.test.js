@@ -256,6 +256,250 @@ function testCheckoutExpiry() {
   assert.strictEqual(context.checkoutExpired_({ checkoutCreatedAt: "2026-09-25T11:00:00Z" }, now), true);
 }
 
+function testLegacyRolloutCompatibility() {
+  const context = makeContext();
+  const properties = {
+    ENABLE_LEGACY_ROLLOUT_COMPATIBILITY: "true",
+    LEGACY_ROLLOUT_COMPATIBILITY_EXPIRES_AT: "2999-01-01T00:00:00Z",
+  };
+  context.scriptProperty_ = (name) => properties[name] || "";
+
+  assert.strictEqual(
+    context.legacyRolloutCompatibilityEnabled_(new Date("2026-09-27T12:00:00Z")),
+    true,
+  );
+  properties.LEGACY_ROLLOUT_COMPATIBILITY_EXPIRES_AT = "2026-09-27T11:59:59Z";
+  assert.strictEqual(
+    context.legacyRolloutCompatibilityEnabled_(new Date("2026-09-27T12:00:00Z")),
+    false,
+    "the bridge must turn itself off at the configured deadline",
+  );
+  properties.LEGACY_ROLLOUT_COMPATIBILITY_EXPIRES_AT = "2999-01-01T00:00:00Z";
+
+  context.json_ = (value) => value;
+  context.validateLogin_ = (username, password) => ({ ok: username === "student" && password === "secret", token: "student-token" });
+  context.adminLogin_ = (username, password) => ({ ok: username === "admin" && password === "secret", token: "admin-token" });
+  let result = context.doGet({ parameter: { action: "validateLogin", username: "student", password: "secret" } });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.legacyCompatibility, true);
+  result = context.doGet({ parameter: { action: "adminLogin", username: "admin", password: "secret" } });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.legacyCompatibility, true);
+
+  let recorded = 0;
+  context.requireAssignedClass_ = (_username, classId) => ({ id: classId, passingScore: 80 });
+  context.recordTestAttempt_ = (_username, classId, complete, score) => {
+    recorded++;
+    return { ok: true, classId, complete, score };
+  };
+  result = context.logTest_("student", "passenger", true, 88);
+  assert.strictEqual(result.score, 88);
+  assert.strictEqual(result.legacyCompatibility, true);
+  assert.strictEqual(recorded, 1);
+
+  assert.throws(
+    () => context.logTest_("student", "hazmat", true, 100),
+    /Hazmat tests are graded by the server/,
+    "Hazmat must never accept a browser-computed score, even while compatibility is enabled",
+  );
+  assert.throws(() => context.logTest_("student", " HAZMAT ", true, 100), /Hazmat tests are graded by the server/);
+  assert.strictEqual(recorded, 1);
+
+  properties.ENABLE_LEGACY_ROLLOUT_COMPATIBILITY = "false";
+  assert.throws(() => context.logTest_("student", "passenger", true, 88), /graded by the server/);
+  result = context.doGet({ parameter: { action: "validateLogin", username: "student", password: "secret" } });
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /POST/);
+}
+
+function checkoutRecoveryHarness() {
+  const context = makeContext();
+  const student = {
+    row: 2,
+    obj: {
+      username: "student",
+      enrollmentId: "stable-enrollment-id",
+      paymentStatus: "creating_checkout",
+      active: false,
+    },
+  };
+  const link = { id: "link-1", order_id: "order-1", url: "https://square.test/link-1" };
+  context.recordHazmatCheckoutAuditSafely_ = () => {};
+  context.findStudentByEnrollmentId_ = () => student;
+  return { context, student, link };
+}
+
+function validHazmatSignup() {
+  return {
+    username: "student",
+    password: "secret1",
+    firstName: "Test",
+    lastName: "Student",
+    licenseNumber: "TEST123",
+    licenseState: "VA",
+    dob: "1990-01-01",
+    email: "student@example.com",
+    phone: "555-555-0100",
+    certify: true,
+  };
+}
+
+function testProvisionalEnrollmentPrecedesSquare() {
+  const context = makeContext();
+  const events = [];
+  const provisional = {
+    row: 2,
+    obj: {
+      username: "student",
+      enrollmentId: "stable-enrollment-id",
+      checkoutCreatedAt: new Date(),
+      checkoutExpiresAt: new Date(),
+    },
+  };
+  context.Utilities = { getUuid: () => "stable-enrollment-id" };
+  context.ensureHazmatHeaders_ = () => {};
+  context.classById_ = () => ({ title: "Hazmat Endorsement" });
+  context.squareConfig_ = () => ({});
+  context.clearSheetCache_ = () => {};
+  context.findStudent_ = () => null;
+  context.enforceHazmatCheckoutRateLimit_ = () => {};
+  context.appendObject_ = (sheetName) => {
+    events.push(`append:${sheetName}`);
+    return 2;
+  };
+  context.findStudentByEnrollmentId_ = () => provisional;
+  context.ensureHazmatProvisionalRecords_ = () => { events.push("provisional-related-records"); };
+  context.recordHazmatCheckoutAudit_ = () => { events.push("provisional-audit"); };
+  context.createOrRecoverHazmatPaymentLink_ = () => {
+    events.push("square");
+    return { ok: true };
+  };
+
+  assert.strictEqual(context.startHazmatCheckout_(validHazmatSignup()).ok, true);
+  assert.deepStrictEqual(events, [
+    "append:Students",
+    "provisional-related-records",
+    "provisional-audit",
+    "square",
+  ]);
+
+  let squareCalls = 0;
+  context.appendObject_ = () => { throw new Error("first provisional Sheet write failed"); };
+  context.createOrRecoverHazmatPaymentLink_ = () => { squareCalls++; return { ok: true }; };
+  assert.throws(() => context.startHazmatCheckout_(validHazmatSignup()), /provisional Sheet write failed/);
+  assert.strictEqual(squareCalls, 0, "Square must not be contacted until the provisional enrollment is durable");
+}
+
+function testSquareSuccessThenPersistenceFailureAndRetry() {
+  const { context, student, link } = checkoutRecoveryHarness();
+  const enrollmentIds = [];
+  context.createHazmatPaymentLink_ = (enrollmentId) => {
+    enrollmentIds.push(enrollmentId);
+    return link;
+  };
+  let writes = 0;
+  context.persistHazmatCheckoutLink_ = () => {
+    writes++;
+    if (writes <= 2) throw new Error("Sheets unavailable");
+    student.obj.paymentStatus = "awaiting_payment";
+    student.obj.paymentOrderId = link.order_id;
+    student.obj.paymentLinkId = link.id;
+  };
+  let cleanupCalls = 0;
+  context.squareRequest_ = (method) => {
+    if (method === "delete") cleanupCalls++;
+    return {};
+  };
+
+  assert.throws(
+    () => context.createOrRecoverHazmatPaymentLink_(student, "student@example.com", {}, false),
+    /same username, password, and email/,
+  );
+  assert.strictEqual(cleanupCalls, 0, "an unrecorded link must not be deleted because the stable idempotency key is the recovery path");
+
+  const result = context.createOrRecoverHazmatPaymentLink_(student, "student@example.com", {}, true);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.resumed, true);
+  assert.deepStrictEqual(enrollmentIds, ["stable-enrollment-id", "stable-enrollment-id"]);
+  assert.strictEqual(result.checkoutUrl, link.url);
+}
+
+function testCheckoutCleanupFailureRemainsRecoverable() {
+  const { context, student, link } = checkoutRecoveryHarness();
+  context.createHazmatPaymentLink_ = () => link;
+  let writes = 0;
+  context.persistHazmatCheckoutLink_ = (_student, persistedLink, status) => {
+    writes++;
+    if (writes === 1) throw new Error("first Sheets write failed");
+    student.obj.paymentStatus = status;
+    student.obj.paymentOrderId = persistedLink.order_id;
+    student.obj.paymentLinkId = persistedLink.id;
+  };
+  context.inspectHazmatPayment_ = () => ({ paid: false, pending: true, canceled: false });
+  context.squareRequest_ = (method) => {
+    if (method === "delete") throw new Error("Square cleanup unavailable");
+    return {};
+  };
+  let expired = 0;
+  context.expireHazmatEnrollment_ = () => { expired++; };
+
+  assert.throws(
+    () => context.createOrRecoverHazmatPaymentLink_(student, "student@example.com", {}, false),
+    /recovery is pending/,
+  );
+  assert.strictEqual(student.obj.paymentStatus, "checkout_recovery");
+  assert.strictEqual(student.obj.paymentOrderId, "order-1");
+  assert.strictEqual(expired, 0, "a failed cleanup must not discard the durable recovery record");
+}
+
+function testPaymentDiscoveredDuringPersistenceRecovery() {
+  const { context, student, link } = checkoutRecoveryHarness();
+  context.createHazmatPaymentLink_ = () => link;
+  let writes = 0;
+  context.persistHazmatCheckoutLink_ = (_student, persistedLink, status) => {
+    writes++;
+    if (writes === 1) throw new Error("first Sheets write failed");
+    student.obj.paymentStatus = status;
+    student.obj.paymentOrderId = persistedLink.order_id;
+    student.obj.paymentLinkId = persistedLink.id;
+  };
+  context.inspectHazmatPayment_ = () => ({
+    paid: true,
+    pending: false,
+    canceled: false,
+    paymentIds: ["payment-1"],
+    completedAt: new Date("2026-09-27T12:00:00Z"),
+  });
+  let deleted = 0;
+  context.squareRequest_ = (method) => { if (method === "delete") deleted++; return {}; };
+  let activations = 0;
+  context.activateHazmatPayment_ = () => {
+    activations++;
+    student.obj.paymentStatus = "paid";
+    student.obj.active = true;
+  };
+
+  const result = context.createOrRecoverHazmatPaymentLink_(student, "student@example.com", {}, false);
+  assert.strictEqual(result.paid, true);
+  assert.strictEqual(result.active, true);
+  assert.strictEqual(activations, 1);
+  assert.strictEqual(deleted, 0, "a paid Square order must never be cleaned up");
+}
+
+function testStableSquareIdempotencyKey() {
+  const context = makeContext();
+  const bodies = [];
+  context.squareRequest_ = (_method, _path, body) => {
+    bodies.push(body);
+    return { payment_link: { id: "link-1", order_id: "order-1", url: "https://square.test/link-1" } };
+  };
+  const cfg = { redirectUrl: "https://staging.test/complete", locationId: "location-1" };
+  context.createHazmatPaymentLink_("stable-enrollment-id", "student@example.com", cfg);
+  context.createHazmatPaymentLink_("stable-enrollment-id", "student@example.com", cfg);
+  assert.strictEqual(bodies[0].idempotency_key, "hazmat-stable-enrollment-id");
+  assert.strictEqual(bodies[1].idempotency_key, bodies[0].idempotency_key);
+}
+
 testGrading();
 testPaymentInspection();
 testQuestionSanitization();
@@ -263,4 +507,10 @@ testPaymentIdempotency();
 testPaymentActivationAndDuplicateGuard();
 testTprTransition();
 testCheckoutExpiry();
+testLegacyRolloutCompatibility();
+testProvisionalEnrollmentPrecedesSquare();
+testSquareSuccessThenPersistenceFailureAndRetry();
+testCheckoutCleanupFailureRemainsRecoverable();
+testPaymentDiscoveredDuringPersistenceRecovery();
+testStableSquareIdempotencyKey();
 console.log("hardening tests passed");

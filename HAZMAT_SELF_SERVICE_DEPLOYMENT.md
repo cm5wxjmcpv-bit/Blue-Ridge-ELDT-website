@@ -17,6 +17,10 @@ A five-minute Apps Script reconciliation trigger is also included so successful 
 
 Unpaid checkouts expire after 48 hours. Reconciliation verifies payment one last time, deletes the Square payment link (which cancels an unpaid order), retains the audit row as `expired`, clears the abandoned password, and releases the username. Re-entering the same username/password/email before expiry resumes the existing single-use checkout instead of creating a duplicate order. Each reconciliation run checks at most 25 records and rotates through the queue.
 
+Checkout creation is provisional-first. Before Square is contacted, the backend durably writes a Student row with `paymentStatus=creating_checkout`, the Hazmat assignment, the SignupRequest, and a `provisional_enrollment_created` entry in the append-only `HazmatCheckoutAudit` sheet. The enrollment ID is then used as Square's stable idempotency key. A retry with the same username, password, and email reuses that enrollment ID instead of creating an unrelated order.
+
+If Square creates a link but the normal Sheet update fails, the backend retries persistence as `checkout_recovery` and checks the Square order before attempting cleanup. A discovered payment is activated and is never deleted. If the order is unpaid, the backend attempts to delete the new payment link; successful cleanup archives the provisional enrollment so a retry can create a fresh checkout. If cleanup fails, the durable recovery row keeps the Square link/order IDs and a retry resumes that same checkout. If even the recovery metadata write fails, the provisional row and stable idempotency key remain; cleanup is deliberately not attempted, and a retry asks Square for the same link. These transitions are also appended to `HazmatCheckoutAudit`; audit-write failures are logged but never cause a legitimate payment record to be deleted.
+
 ## Google Apps Script Script Properties
 
 Set these in the Apps Script project. Never place access tokens in GitHub or browser JavaScript.
@@ -28,6 +32,19 @@ Set these in the Apps Script project. Never place access tokens in GitHub or bro
 - `SQUARE_LOCATION_ID` = Square Sandbox location ID
 - `HAZMAT_REDIRECT_URL` = the HTTPS URL of the isolated staging copy of `hazmat-payment-complete.html` (**required in Sandbox**)
 - `DATA_SPREADSHEET_ID` = the ID of an isolated copy/test spreadsheet (**required in Sandbox; never use the production Sheet ID**)
+
+### Temporary cached-page compatibility during eventual rollout
+
+The new frontend always uses POST login and `submitTestAnswers`. To avoid interrupting a student who already has the previous site open when the backend changes, the backend contains a narrow, time-bounded compatibility bridge. Before the backend rollout, set both properties:
+
+- `ENABLE_LEGACY_ROLLOUT_COMPATIBILITY` = `true`
+- `LEGACY_ROLLOUT_COMPATIBILITY_EXPIRES_AT` = a future ISO-8601 UTC timestamp, for example `2026-10-04T04:00:00Z`
+
+Both values are required. A missing, invalid, or elapsed expiry disables the bridge automatically. While enabled, cached pages may use legacy GET student/admin login, and an authenticated old test page may submit its browser-calculated score only for a non-Hazmat class. The existing student token, active enrollment, class assignment, completed-module requirement, score range, and normal best-score rules still apply. Every compatibility use is recorded in Apps Script execution logs without logging a password.
+
+Hazmat is excluded unconditionally: `logTest` rejects Hazmat even when the bridge is enabled, and Hazmat continues to use server-authoritative `submitTestAnswers` with answer keys confined to `app.js`/Sheets. The bridge does not change the new frontend, which continues to send credentials only by POST.
+
+Choose an expiry that covers the planned propagation/open-page window (seven days is a conservative starting point), monitor the execution logs for legacy use, and do not extend it without a specific need. After the deadline, remove both Script Properties. Once there has been no legacy use through the agreed window, remove `legacyRolloutCompatibilityEnabled_`, the GET-login branches, and the non-Hazmat `logTest_` fallback in a separate reviewed change. GET login temporarily exposes credentials to URL/history/logging surfaces, which is why this bridge must remain short-lived.
 
 The backend fails closed if `SQUARE_ENVIRONMENT` is absent. Sandbox also fails closed if either `HAZMAT_REDIRECT_URL` or `DATA_SPREADSHEET_ID` is absent. This prevents an incomplete Sandbox test from redirecting to the live site or writing the production student Sheet by accident.
 
@@ -83,6 +100,9 @@ Use Square Sandbox and verify all of the following:
 - A payment completed without returning to BRELDT is picked up by the reconciliation trigger.
 - Repeating verification does not send a second access email.
 - A checkout can be resumed before 48 hours without creating a second order.
+- A forced first post-Square Sheet write failure leaves a recoverable provisional enrollment and retry reuses the same Square idempotency key.
+- A forced cleanup failure leaves `checkout_recovery` with its Square order/link IDs, and retry resumes it.
+- A payment discovered during partial-failure recovery is activated and the Square link is not deleted.
 - An unpaid checkout expires after 48 hours, its Square link is canceled, and the username can be used again.
 - A submitted TPR record remains Submitted after status reads and repair runs.
 - Run `repairHazmatTprStatuses()` and confirm it repairs a missing pending state without changing Submitted rows.
@@ -109,8 +129,10 @@ The public checkout endpoint now uses a honeypot, strict input validation, short
 1. Finish Sandbox test.
 2. Change Script Properties to production Square credentials/environment.
 3. Complete human review of the branch and the Sandbox test evidence.
-4. Schedule the Apps Script and static-site rollout together so students do not receive a mismatched frontend/backend API.
-5. Redeploy Apps Script.
-6. Merge this branch to `main` only after the backend is ready.
-7. Confirm GitHub Pages publishes the new Hazmat pages.
-8. Perform one authorized real $50 end-to-end transaction and refund it through Square if desired.
+4. Set the two temporary legacy-compatibility properties with a reviewed future expiry before changing the backend.
+5. Schedule the Apps Script and static-site rollout together so students do not receive a mismatched frontend/backend API.
+6. Redeploy Apps Script.
+7. Merge this branch to `main` only after the backend is ready.
+8. Confirm GitHub Pages publishes the new Hazmat pages.
+9. Perform one authorized real $50 end-to-end transaction and refund it through Square if desired.
+10. After the compatibility deadline and log review, remove the temporary properties and schedule removal of the compatibility code.

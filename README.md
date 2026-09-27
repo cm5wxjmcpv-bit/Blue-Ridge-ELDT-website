@@ -19,6 +19,7 @@ The original workbook already contains the legacy `Status`, `Students`, and `Adm
 - `Progress`
 - `TestResults`
 - `SignupRequests`
+- `HazmatCheckoutAudit` (append-only checkout/recovery events)
 
 ## Apps Script
 `app.js` contains the Google Apps Script backend source used by the newer portal. The Apps Script deployment must point to the Blue Ridge spreadsheet above, not the city spreadsheet.
