@@ -1180,6 +1180,55 @@ function verifyHazmatPayment_(enrollmentId) {
   return { ok: true, paid: true, active: true, username: student.obj.username };
 }
 
+function runHazmatPaymentReconciliation() {
+  let enrollmentIds = [];
+  withRequestCache_(function() {
+    ensureHazmatHeaders_();
+    enrollmentIds = rowObjs_(STUDENTS_SHEET).filter(function(row) {
+      return !!String(row.obj.enrollmentId || "").trim() &&
+        String(row.obj.paymentStatus || "").toLowerCase() === "awaiting_payment" &&
+        !active_(row.obj.active);
+    }).map(function(row) {
+      return String(row.obj.enrollmentId);
+    });
+  });
+
+  let activated = 0;
+  let pending = 0;
+  let failed = 0;
+
+  enrollmentIds.forEach(function(enrollmentId) {
+    try {
+      const result = withRequestCache_(function() {
+        return verifyHazmatPayment_(enrollmentId);
+      });
+      if (result && result.paid && result.active) activated++;
+      else pending++;
+    } catch (err) {
+      failed++;
+      console.error("Hazmat payment reconciliation failed for " + enrollmentId + ": " +
+        String(err && err.message ? err.message : err));
+    }
+  });
+
+  return {
+    ok: true,
+    checked: enrollmentIds.length,
+    activated: activated,
+    pending: pending,
+    failed: failed
+  };
+}
+
+function installHazmatPaymentReconciliationTrigger() {
+  const handler = "runHazmatPaymentReconciliation";
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+  });
+  ScriptApp.newTrigger(handler).timeBased().everyMinutes(5).create();
+  return { ok: true, message: "Hazmat payment reconciliation will run every 5 minutes." };
+}
+
 function sendHazmatAccessEmail_(username) {
   const student = findStudent_(username);
   if (!student) return;
