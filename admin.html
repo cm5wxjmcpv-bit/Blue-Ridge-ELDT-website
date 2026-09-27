@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Training Admin</title>
     <script src="config.js?v=20260730-contact1" defer></script>
-    <script src="frontend-api.js" defer></script>
+    <script src="frontend-api.js?v=20260927-hardened1" defer></script>
     <style>
       :root {
         --navy: #17324d;
@@ -331,8 +331,20 @@
           pendingSupported = true;
         const $ = (id) => document.getElementById(id);
         function msg(id, t, ok = true) {
-          $(id).innerHTML =
-            `<div class="${ok ? "success" : "error"}">${t}</div>`;
+          const item = document.createElement("div");
+          item.className = ok ? "success" : "error";
+          item.textContent = t;
+          $(id).replaceChildren(item);
+        }
+        function tableTextCell(lines, boldFirst = false) {
+          const cell = document.createElement("td");
+          lines.forEach((line, index) => {
+            if (index) cell.appendChild(document.createElement("br"));
+            const node = index === 0 && boldFirst ? document.createElement("b") : document.createElement("span");
+            node.textContent = String(line === undefined || line === null ? "" : line);
+            cell.appendChild(node);
+          });
+          return cell;
         }
         async function loadAll() {
           classes = (await apiListClasses(false)).classes || [];
@@ -442,7 +454,26 @@
             .filter((s) => JSON.stringify(s).toLowerCase().includes(q))
             .forEach((s) => {
               const tr = document.createElement("tr");
-              tr.innerHTML = `<td>${s.username}</td><td><span class="pw hidden"></span><button class="secondary showpw">Show</button></td><td>${s.fullNameOnLicense || ""}<br>${s.licenseNumber || ""}</td><td class="contact"></td><td>${(s.classes || []).join(", ")}</td><td class="tpr"></td><td class="actions"></td>`;
+              const usernameCell = document.createElement("td");
+              usernameCell.textContent = s.username || "";
+              const passwordCell = document.createElement("td");
+              const passwordText = document.createElement("span");
+              passwordText.className = "pw hidden";
+              const showPassword = document.createElement("button");
+              showPassword.className = "secondary showpw";
+              showPassword.textContent = "Show";
+              passwordCell.append(passwordText, showPassword);
+              const licenseCell = document.createElement("td");
+              licenseCell.append(document.createTextNode(s.fullNameOnLicense || ""), document.createElement("br"), document.createTextNode(s.licenseNumber || ""));
+              const contactCell = document.createElement("td");
+              contactCell.className = "contact";
+              const classesCell = document.createElement("td");
+              classesCell.textContent = (s.classes || []).join(", ");
+              const tprCellElement = document.createElement("td");
+              tprCellElement.className = "tpr";
+              const actionsCell = document.createElement("td");
+              actionsCell.className = "actions";
+              tr.append(usernameCell, passwordCell, licenseCell, contactCell, classesCell, tprCellElement, actionsCell);
               tr.querySelector(".pw").textContent = s.password || "";
               tr.querySelector(".contact").textContent =
                 s.preferredContact || "Not provided";
@@ -604,7 +635,11 @@
           $("classList").innerHTML = "";
           classes.forEach((c) => {
             const tr = document.createElement("tr");
-            tr.innerHTML = `<td><b>${c.title}</b><br>${c.id}<br>${c.description || ""}</td><td>Pass ${c.passingScore}% · Watch ${c.requiredWatchPercent} · Sort ${c.sortOrder} · ${c.active}</td><td></td>`;
+            tr.append(
+              tableTextCell([c.title, c.id, c.description || ""], true),
+              tableTextCell([`Pass ${c.passingScore}% · Watch ${c.requiredWatchPercent} · Sort ${c.sortOrder} · ${c.active}`]),
+              document.createElement("td"),
+            );
             const e = document.createElement("button");
             e.textContent = "Edit";
             e.addEventListener("click", () => {
@@ -644,7 +679,11 @@
           $("moduleList").innerHTML = "";
           modules.forEach((m) => {
             const tr = document.createElement("tr");
-            tr.innerHTML = `<td><b>${m.title}</b><br>${m.classId} · ${m.youtubeId}</td><td>${m.active}</td><td></td>`;
+            tr.append(
+              tableTextCell([m.title, `${m.classId} · ${m.youtubeId}`], true),
+              tableTextCell([m.active]),
+              document.createElement("td"),
+            );
             const e = document.createElement("button");
             e.textContent = "Edit";
             e.addEventListener("click", () => {
@@ -687,7 +726,11 @@
             .filter((q) => !f || q.classId === f)
             .forEach((q) => {
               const tr = document.createElement("tr");
-              tr.innerHTML = `<td><b>${q.question}</b><br>${q.classId}</td><td>${q.active}</td><td></td>`;
+              tr.append(
+                tableTextCell([q.question, q.classId], true),
+                tableTextCell([q.active]),
+                document.createElement("td"),
+              );
               const e = document.createElement("button");
               e.textContent = "Edit";
               e.addEventListener("click", () => {
@@ -740,7 +783,7 @@
           loadAll();
         }
         $("loginBtn").addEventListener("click", async () => {
-          const data = await apiGet("adminLogin", {
+          const data = await apiPost("adminLogin", {
             username: $("adminUser").value,
             password: $("adminPass").value,
           });

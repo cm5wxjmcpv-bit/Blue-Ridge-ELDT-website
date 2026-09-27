@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Martinsville CDL Program - Player</title>
   <script src="config.js?v=20260730-contact1" defer></script>
-  <script src="frontend-api.js" defer></script>
+  <script src="frontend-api.js?v=20260927-hardened1" defer></script>
   <style>
     :root{
       --navy:#17324d;
@@ -356,7 +356,7 @@
           <img
             src="logo.png"
             alt="Martinsville CDL Program logo"
-            onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=&quot;brand-fallback&quot;>M</div>';">
+            onerror="if(this.parentElement){this.style.display='none';this.parentElement.innerHTML='<div class=&quot;brand-fallback&quot;>M</div>'}">
         </div>
         <div class="brand-text">
           <h1>Martinsville CDL Program</h1>
@@ -490,7 +490,7 @@
       return `<a class="continue-btn" href="test.html?classId=${encodeURIComponent(classId)}">Continue to Final Test</a>`;
     }
 
-    function completeModule(){ if(logged)return; logged=true; stopTimers(); document.getElementById("done").innerHTML="<b>Module complete.</b> Logging to Google Sheets…"; apiLogModule(username, selectedModule.id, classId).then(res=>{ if(!res.ok){ logged=false; startTimers(); document.getElementById("done").innerHTML="<b>Error logging completion:</b> "+(res.error||"Unknown"); return;} document.getElementById("statusText").textContent="Complete"; document.getElementById("done").innerHTML=`<b>Module complete and saved.</b><br>${nextStepHtml()}`; }).catch(err=>{logged=false;startTimers();console.error(err);document.getElementById("done").innerHTML="<b>Error logging completion.</b>";}); }
+    function completeModule(){ if(logged)return; logged=true; stopTimers(); document.getElementById("done").innerHTML="<b>Module complete.</b> Logging to Google Sheets…"; apiLogModule(username, selectedModule.id, classId).then(res=>{ if(!res.ok){ logged=false; startTimers(); const done=document.getElementById("done"),heading=document.createElement("b"); heading.textContent="Error logging completion:"; done.replaceChildren(heading," "+String(res.error||"Unknown")); return;} document.getElementById("statusText").textContent="Complete"; document.getElementById("done").innerHTML=`<b>Module complete and saved.</b><br>${nextStepHtml()}`; }).catch(err=>{logged=false;startTimers();console.error(err);document.getElementById("done").innerHTML="<b>Error logging completion.</b>";}); }
     function maybeComplete(){ if(!logged&&completionReady())completeModule(); }
     function enforcePlaybackRate(){ try{ if(player && player.getPlaybackRate() !== 1) player.setPlaybackRate(1); }catch{} }
     function performSeekCorrection(t){ if(!player||correctingSeek)return; correctingSeek=true; suppressGuardUntil=Date.now()+1200; try{player.pauseVideo();}catch{} setTimeout(()=>{try{player.seekTo(Math.max(0,t),true);}catch{} setTimeout(()=>{try{if(!logged)player.playVideo();}catch{} correctingSeek=false;},180);},60); }

@@ -111,13 +111,17 @@ async function apiPost(action, body = {}) {
   });
 
   const data = await response.json();
+  const normalizedAction = String(action).toLowerCase();
+  if (normalizedAction === "adminlogin" && data && data.ok && data.token) {
+    sessionStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+  }
   handleSessionExpired(data);
   return data;
 }
 
 async function login(username, password) {
   try {
-    const data = await apiGet("validateLogin", { username, password });
+    const data = await apiPost("validateLogin", { username, password });
     if (data && data.ok) {
       localStorage.setItem(AUTH_STORAGE_KEY, data.username || username);
       if (data.token) localStorage.setItem(STUDENT_TOKEN_KEY, data.token);
@@ -201,8 +205,8 @@ async function apiLogModule(username, moduleId, classId = DEFAULT_CLASS_ID) {
   return apiPost("logModule", { username, moduleId, classId });
 }
 
-async function apiLogTest(username, complete, score, classId = DEFAULT_CLASS_ID) {
-  return apiPost("logTest", { username, complete, score, classId });
+async function apiSubmitTestAnswers(username, answers, classId = DEFAULT_CLASS_ID) {
+  return apiPost("submitTestAnswers", { username, answers, classId });
 }
 
 async function apiSubmitSignupRequest(payload) {

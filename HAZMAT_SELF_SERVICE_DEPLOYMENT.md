@@ -15,6 +15,8 @@ This branch is intentionally not live yet. It adds a self-service Hazmat ELDT en
 
 A five-minute Apps Script reconciliation trigger is also included so successful payments can be activated even if the student closes Square before being redirected to BRELDT.
 
+Unpaid checkouts expire after 48 hours. Reconciliation verifies payment one last time, deletes the Square payment link (which cancels an unpaid order), retains the audit row as `expired`, clears the abandoned password, and releases the username. Re-entering the same username/password/email before expiry resumes the existing single-use checkout instead of creating a duplicate order. Each reconciliation run checks at most 25 records and rotates through the queue.
+
 ## Google Apps Script Script Properties
 
 Set these in the Apps Script project. Never place access tokens in GitHub or browser JavaScript.
@@ -24,7 +26,10 @@ Set these in the Apps Script project. Never place access tokens in GitHub or bro
 - `SQUARE_ENVIRONMENT` = `sandbox`
 - `SQUARE_ACCESS_TOKEN` = Square Sandbox access token
 - `SQUARE_LOCATION_ID` = Square Sandbox location ID
-- `HAZMAT_REDIRECT_URL` = `https://blueridgeeldt.com/hazmat-payment-complete.html` (optional; this is the code default)
+- `HAZMAT_REDIRECT_URL` = the HTTPS URL of the isolated staging copy of `hazmat-payment-complete.html` (**required in Sandbox**)
+- `DATA_SPREADSHEET_ID` = the ID of an isolated copy/test spreadsheet (**required in Sandbox; never use the production Sheet ID**)
+
+The backend fails closed if `SQUARE_ENVIRONMENT` is absent. Sandbox also fails closed if either `HAZMAT_REDIRECT_URL` or `DATA_SPREADSHEET_ID` is absent. This prevents an incomplete Sandbox test from redirecting to the live site or writing the production student Sheet by accident.
 
 ### Production
 
@@ -33,16 +38,31 @@ After Sandbox testing succeeds:
 - `SQUARE_ENVIRONMENT` = `production`
 - Replace `SQUARE_ACCESS_TOKEN` with the production token.
 - Replace `SQUARE_LOCATION_ID` with the production location ID.
+- `DATA_SPREADSHEET_ID` can be omitted in production to preserve the existing Sheet, or set explicitly to the existing production Sheet ID after it is independently verified.
 
 ## Apps Script deployment
 
-1. Replace the deployed project's backend source with this branch's `app.js`.
+For Sandbox, use a separate Apps Script test project/deployment and isolated test spreadsheet. Do not update the live deployment or production Sheet during Sandbox preparation.
+
+1. Put this branch's `app.js` in the isolated Apps Script test project.
 2. Save the project.
 3. Run `setupSheets_()` once from the Apps Script editor to ensure all required columns exist.
 4. Run `installHazmatPaymentReconciliationTrigger()` once from the Apps Script editor.
 5. Approve the Google authorization prompts for Sheets, email, external requests, and the time-driven trigger.
-6. Update the existing web-app deployment rather than creating a new URL when possible.
-7. Confirm `config.js` still points at that deployment URL.
+6. Create/update only the isolated test web-app deployment.
+7. Configure the staging copy of `config.js` to point at the isolated deployment URL. Do not commit a production URL change merely for testing.
+
+## Isolated staging (do not change live GitHub Pages)
+
+Before the end-to-end Sandbox test, publish this branch's static files to a separate HTTPS staging origin. Use a separate GitHub Pages test repository/site or another isolated static preview; do not change the Pages source for `blueridgeeldt.com` and do not merge this branch merely to obtain a redirect URL.
+
+1. Create the isolated static preview manually.
+2. Confirm its `config.js` points to the Sandbox Apps Script test deployment, not the production deployment.
+3. Set `HAZMAT_REDIRECT_URL` to `https://<staging-origin>/hazmat-payment-complete.html`.
+4. Use only a Square Sandbox token and Sandbox location.
+5. Run the test matrix below with synthetic student identity data.
+
+No staging site or Apps Script deployment is created by this branch.
 
 ## Test before production
 
@@ -61,12 +81,36 @@ Use Square Sandbox and verify all of the following:
 - A first passing test sets the student to TPR Pending.
 - Admin can mark TPR Submitted.
 - A payment completed without returning to BRELDT is picked up by the reconciliation trigger.
+- Repeating verification does not send a second access email.
+- A checkout can be resumed before 48 hours without creating a second order.
+- An unpaid checkout expires after 48 hours, its Square link is canceled, and the username can be used again.
+- A submitted TPR record remains Submitted after status reads and repair runs.
+- Run `repairHazmatTprStatuses()` and confirm it repairs a missing pending state without changing Submitted rows.
+
+## Legacy authentication risk and migration plan
+
+The existing system stores student and administrator passwords in plaintext in Google Sheets and returns student passwords to the authenticated admin page. This branch does not migrate authentication because active students depend on the current credentials and there is no password-reset workflow yet. Treat access to the spreadsheet and Apps Script project as access to every account.
+
+Plan a separate migration before production hardening is considered complete:
+
+1. Add salted, slow password hashes while retaining a temporary legacy-password fallback.
+2. On each successful legacy login, replace that student's plaintext value with a hash.
+3. Add a verified password-reset flow before removing the fallback.
+4. Stop returning password fields from `listStudents` and remove password display from the admin UI.
+5. Migrate administrator credentials separately and revoke old sessions.
+6. After the migration window, remove remaining plaintext values and the fallback, then audit Sheet sharing and Apps Script editors.
+
+The current module watch-percentage check is also enforced in browser JavaScript. A determined student can call the authenticated completion endpoint directly. Server-authoritative playback proof is not available from the present static-site/YouTube architecture; this remains a production risk and should be addressed separately (for example, server-timed module sessions with bounded heartbeats and review of anomalous completions).
+
+The public checkout endpoint now uses a honeypot, strict input validation, short-lived CacheService limits (global plus username/email), checkout reuse, and expiry. Cache limits are lightweight and can be evicted; add a managed challenge such as Cloudflare Turnstile before launch or immediately after launch if public traffic/abuse warrants it. Keep monitoring Square link creation and Sheet growth.
 
 ## Go-live sequence
 
 1. Finish Sandbox test.
 2. Change Script Properties to production Square credentials/environment.
-3. Redeploy Apps Script.
-4. Merge this branch to `main`.
-5. Confirm GitHub Pages publishes the new Hazmat pages.
-6. Perform one real $50 end-to-end transaction and refund it through Square if desired.
+3. Complete human review of the branch and the Sandbox test evidence.
+4. Schedule the Apps Script and static-site rollout together so students do not receive a mismatched frontend/backend API.
+5. Redeploy Apps Script.
+6. Merge this branch to `main` only after the backend is ready.
+7. Confirm GitHub Pages publishes the new Hazmat pages.
+8. Perform one authorized real $50 end-to-end transaction and refund it through Square if desired.

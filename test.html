@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>CDL Training - Test</title>
     <script src="config.js?v=20260730-contact1" defer></script>
-    <script src="frontend-api.js" defer></script>
+    <script src="frontend-api.js?v=20260927-hardened1" defer></script>
     <style>
       body {
         font-family: system-ui, Arial;
@@ -116,7 +116,9 @@
             const w = document.createElement("div");
             w.className = "question";
             const p = document.createElement("p");
-            p.innerHTML = `<b>Question ${i + 1}:</b> ${q.question}`;
+            const heading = document.createElement("b");
+            heading.textContent = `Question ${i + 1}:`;
+            p.append(heading, " " + String(q.question || ""));
             w.appendChild(p);
             [q.optionA, q.optionB, q.optionC, q.optionD].forEach((opt, j) => {
               if (!opt) return;
@@ -134,10 +136,12 @@
         }
 
         function selections() {
-          return QUESTIONS.map((_, i) => {
+          const answers = {};
+          QUESTIONS.forEach((question, i) => {
             const x = form.querySelector(`input[name="q${i}"]:checked`);
-            return x ? Number(x.value) : null;
+            if (x) answers[String(question.id)] = Number(x.value);
           });
+          return answers;
         }
 
         function setSubmitting(value) {
@@ -207,6 +211,7 @@
           }
 
           const q = await apiListTestQuestions(classId, true);
+          if (!q || !q.ok) throw new Error((q && q.error) || "Unable to load test questions");
           QUESTIONS = q.questions || [];
           document.getElementById("testMeta").innerHTML =
             `${QUESTIONS.length} questions · Multiple choice · Passing score: <b>${passingScore()}%</b>`;
@@ -224,38 +229,30 @@
         submitBtn.addEventListener("click", async () => {
           if (submitting) return;
 
-          const selected = selections();
-          const unanswered = selected.filter((v) => v === null).length;
+          const answers = selections();
+          const unanswered = QUESTIONS.length - Object.keys(answers).length;
           if (unanswered) {
             result.className = "";
             result.innerHTML = `<b>Please answer all questions.</b> ${unanswered} unanswered.`;
             return;
           }
 
-          let correct = 0;
-          QUESTIONS.forEach((q, i) => {
-            if (selected[i] === Number(q.correctIndex)) correct++;
-          });
-
-          const score = Math.round((correct / QUESTIONS.length) * 100);
-          const passed = score >= passingScore();
-
           setSubmitting(true);
           result.className = "";
           result.textContent = "Saving score…";
 
           try {
-            const res = await apiLogTest(username, passed, score, classId);
+            const res = await apiSubmitTestAnswers(username, answers, classId);
             if (!res || !res.ok) {
               setSubmitting(false);
-              result.innerHTML = "<b>Error logging:</b> " + ((res && res.error) || "Unknown");
+              result.textContent = "Unable to save the test: " + ((res && res.error) || "Unknown error");
               return;
             }
 
             status = res;
             setSubmitting(false);
-            if (res.testPassed) showPassed(res.testScore, score, correct);
-            else showReadyForRetake(res.testScore, score, correct);
+            if (res.attemptPassed) showPassed(res.testScore, res.attemptScore, res.correctCount);
+            else showReadyForRetake(res.testScore, res.attemptScore, res.correctCount);
           } catch (err) {
             setSubmitting(false);
             console.error(err);

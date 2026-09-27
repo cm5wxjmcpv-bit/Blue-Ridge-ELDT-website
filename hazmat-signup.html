@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hazmat Enrollment | Blue Ridge ELDT</title>
   <script src="config.js" defer></script>
-  <script src="frontend-api.js" defer></script>
+  <script src="frontend-api.js?v=20260927-hardened1" defer></script>
   <style>
     :root{--navy:#17324d;--navy2:#10263a;--green:#2f8f4e;--bg:#eef2f6;--card:#fff;--text:#1f2937;--muted:#5b6570;--border:#d8e0e8;--danger:#b42318;--shadow:0 14px 38px rgba(16,38,58,.12)}
     *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
@@ -19,6 +19,7 @@
     .cert{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start;margin:24px 0;padding:16px;border:1px solid var(--border);border-radius:13px;background:#f8fafc}.cert input{width:18px;height:18px;min-height:0;margin-top:2px}
     button{width:100%;min-height:50px;border:0;border-radius:13px;background:linear-gradient(135deg,var(--green),#23743e);color:#fff;font-size:16px;font-weight:950;cursor:pointer}button:disabled{opacity:.65;cursor:wait}
     .msg{margin-top:14px;font-weight:750;line-height:1.5}.error{color:var(--danger)}.secure{margin-top:14px;text-align:center;color:var(--muted);font-size:13px}.secure b{color:var(--navy2)}
+    .website-field{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
     @media(max-width:700px){.grid,.grid3{grid-template-columns:1fr}.card{padding:22px;margin-top:18px}.top-inner{align-items:flex-start}}
   </style>
 </head>
@@ -60,6 +61,8 @@
         <span>I certify that the driver information above belongs to me and matches my driver license, CLP, or CDL. I understand that Blue Ridge ELDT will use this information to report successful training completion to the FMCSA Training Provider Registry.</span>
       </label>
 
+      <label class="website-field" aria-hidden="true">Website<input id="website" tabindex="-1" autocomplete="off"></label>
+
       <button id="submitBtn" type="submit">Continue to Secure $50 Payment</button>
       <div id="msg" class="msg" aria-live="polite"></div>
       <div class="secure">Payment is completed on <b>Square's secure checkout</b>. Blue Ridge ELDT does not receive or store your card number.</div>
@@ -96,7 +99,8 @@
           dob:document.getElementById("dob").value,
           email:document.getElementById("email").value.trim(),
           phone:document.getElementById("phone").value.trim(),
-          certify:document.getElementById("certify").checked
+          certify:document.getElementById("certify").checked,
+          website:document.getElementById("website").value
         };
 
         btn.disabled=true;
@@ -104,6 +108,11 @@
         msg.textContent="Preparing your Square checkout…";
         try{
           const res=await apiStartHazmatCheckout(payload);
+          if(res&&res.ok&&res.paid&&res.active){
+            msg.textContent="Your payment is already confirmed. Redirecting you to sign in…";
+            location.href="index.html";
+            return;
+          }
           if(!res||!res.ok||!res.checkoutUrl)throw new Error((res&&res.error)||"Unable to create checkout.");
           sessionStorage.setItem("hazmatEnrollmentId",res.enrollmentId||"");
           sessionStorage.setItem("hazmatUsername",payload.username);
