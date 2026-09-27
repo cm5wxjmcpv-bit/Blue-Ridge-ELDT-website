@@ -104,6 +104,26 @@
         width: auto;
         margin-right: 8px;
       }
+      .status-pill {
+        display: inline-block;
+        padding: 5px 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 6px;
+      }
+      .status-pending {
+        background: #fff4cc;
+        color: #7a5b00;
+      }
+      .status-done {
+        background: #e8f5ec;
+        color: #20683a;
+      }
+      .status-waiting {
+        background: #eef2f6;
+        color: #5b6570;
+      }
       @media (max-width: 800px) {
         .grid {
           grid-template-columns: 1fr;
@@ -156,6 +176,7 @@
                 <th>License Info</th>
                 <th>Contact</th>
                 <th>Classes</th>
+                <th>TPR</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -396,10 +417,20 @@
               })
               .join(", ");
             const action = document.createElement("td");
-            const review = document.createElement("button");
-            review.textContent = "Review";
-            review.addEventListener("click", () => editStudent(s, true));
-            action.appendChild(review);
+            const isHazmat = (s.classes || []).map(String).includes("hazmat");
+            const isSelfServiceHazmat = isHazmat && !!String(s.enrollmentId || "").trim();
+            const isPaid = String(s.paymentStatus || "").toLowerCase() === "paid";
+            if (isSelfServiceHazmat && !isPaid) {
+              const waiting = document.createElement("span");
+              waiting.className = "status-pill status-waiting";
+              waiting.textContent = "Waiting for Square payment";
+              action.appendChild(waiting);
+            } else {
+              const review = document.createElement("button");
+              review.textContent = "Review";
+              review.addEventListener("click", () => editStudent(s, true));
+              action.appendChild(review);
+            }
             tr.append(user, info, contact, assigned, action);
             body.appendChild(tr);
           });
@@ -411,10 +442,60 @@
             .filter((s) => JSON.stringify(s).toLowerCase().includes(q))
             .forEach((s) => {
               const tr = document.createElement("tr");
-              tr.innerHTML = `<td>${s.username}</td><td><span class="pw hidden"></span><button class="secondary showpw">Show</button></td><td>${s.fullNameOnLicense || ""}<br>${s.licenseNumber || ""}</td><td class="contact"></td><td>${(s.classes || []).join(", ")}</td><td></td>`;
+              tr.innerHTML = `<td>${s.username}</td><td><span class="pw hidden"></span><button class="secondary showpw">Show</button></td><td>${s.fullNameOnLicense || ""}<br>${s.licenseNumber || ""}</td><td class="contact"></td><td>${(s.classes || []).join(", ")}</td><td class="tpr"></td><td class="actions"></td>`;
               tr.querySelector(".pw").textContent = s.password || "";
               tr.querySelector(".contact").textContent =
                 s.preferredContact || "Not provided";
+
+              const tprCell = tr.querySelector(".tpr");
+              const isHazmat = (s.classes || []).map(String).includes("hazmat");
+              const tprStatus = String(s.tprStatus || "").toLowerCase();
+              if (!isHazmat) {
+                tprCell.textContent = "—";
+              } else if (tprStatus === "pending") {
+                const pill = document.createElement("div");
+                pill.className = "status-pill status-pending";
+                pill.textContent = "TPR Pending";
+                tprCell.appendChild(pill);
+
+                if (s.trainingCompletedAt) {
+                  const when = document.createElement("div");
+                  when.className = "small";
+                  when.textContent = "Completed " + new Date(s.trainingCompletedAt).toLocaleString();
+                  tprCell.appendChild(when);
+                }
+
+                const mark = document.createElement("button");
+                mark.className = "secondary";
+                mark.textContent = "Mark Submitted";
+                mark.style.marginTop = "6px";
+                mark.addEventListener("click", async () => {
+                  if (!confirm("Mark this Hazmat completion as submitted to the FMCSA TPR?")) return;
+                  const res = await apiPost("markTprSubmitted", { username: s.username });
+                  if (!res.ok) {
+                    alert(res.error || "Unable to update TPR status.");
+                    return;
+                  }
+                  await loadAll();
+                });
+                tprCell.appendChild(mark);
+              } else if (tprStatus === "submitted") {
+                const pill = document.createElement("div");
+                pill.className = "status-pill status-done";
+                pill.textContent = "TPR Submitted";
+                tprCell.appendChild(pill);
+                if (s.tprSubmittedAt) {
+                  const when = document.createElement("div");
+                  when.className = "small";
+                  when.textContent = new Date(s.tprSubmittedAt).toLocaleString();
+                  tprCell.appendChild(when);
+                }
+              } else {
+                const pill = document.createElement("div");
+                pill.className = "status-pill status-waiting";
+                pill.textContent = "Not ready";
+                tprCell.appendChild(pill);
+              }
               tr.querySelector(".showpw").addEventListener("click", (e) => {
                 const pw = tr.querySelector(".pw");
                 pw.classList.toggle("hidden");
@@ -429,7 +510,7 @@
               arch.textContent = "Archive";
               arch.className = "danger";
               arch.addEventListener("click", () => archiveStudent(s.username));
-              tr.lastChild.append(edit, arch);
+              tr.querySelector(".actions").append(edit, arch);
               $("studentList").appendChild(tr);
             });
         }
