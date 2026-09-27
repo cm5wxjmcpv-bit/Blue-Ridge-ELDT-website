@@ -254,6 +254,18 @@ function testCheckoutExpiry() {
   assert.strictEqual(context.checkoutExpired_({ checkoutExpiresAt: "2026-09-27T11:59:59Z" }, now), true);
   assert.strictEqual(context.checkoutExpired_({ checkoutExpiresAt: "2026-09-27T12:00:01Z" }, now), false);
   assert.strictEqual(context.checkoutExpired_({ checkoutCreatedAt: "2026-09-25T11:00:00Z" }, now), true);
+  assert.strictEqual(context.hazmatReconciliationCandidate_({
+    enrollmentId: "enrollment-1",
+    paymentStatus: "creating_checkout",
+    active: false,
+    checkoutExpiresAt: "2026-09-27T11:59:59Z",
+  }, now), true, "stale provisional records must be released by reconciliation");
+  assert.strictEqual(context.hazmatReconciliationCandidate_({
+    enrollmentId: "enrollment-1",
+    paymentStatus: "creating_checkout",
+    active: false,
+    checkoutExpiresAt: "2026-09-27T12:00:01Z",
+  }, now), false, "fresh provisional records wait for the student's retry");
 }
 
 function testLegacyRolloutCompatibility() {

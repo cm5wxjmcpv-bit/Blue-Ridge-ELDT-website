@@ -1174,6 +1174,13 @@ function checkoutExpired_(student, now) {
   return !!expiresAt && expiresAt.getTime() <= (now || new Date()).getTime();
 }
 
+function hazmatReconciliationCandidate_(student, now) {
+  if (!student || !String(student.enrollmentId || "").trim() || active_(student.active)) return false;
+  const status = String(student.paymentStatus || "").toLowerCase();
+  if (["awaiting_payment", "checkout_recovery"].indexOf(status) !== -1) return true;
+  return status === "creating_checkout" && checkoutExpired_(student, now || new Date());
+}
+
 function rateLimitKey_(value) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || "").toLowerCase());
   return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/, "").slice(0, 32);
@@ -1685,10 +1692,9 @@ function runHazmatPaymentReconciliation() {
   let candidates = [];
   withRequestCache_(function() {
     ensureHazmatHeaders_();
+    const candidateNow = new Date();
     const allCandidates = rowObjs_(STUDENTS_SHEET).filter(function(row) {
-      return !!String(row.obj.enrollmentId || "").trim() &&
-        ["awaiting_payment", "checkout_recovery"].indexOf(String(row.obj.paymentStatus || "").toLowerCase()) !== -1 &&
-        !active_(row.obj.active);
+      return hazmatReconciliationCandidate_(row.obj, candidateNow);
     }).sort(function(a, b) {
       const aTime = checkoutExpiryDate_(a.obj);
       const bTime = checkoutExpiryDate_(b.obj);
@@ -1700,6 +1706,7 @@ function runHazmatPaymentReconciliation() {
     candidates = rotated.slice(0, HAZMAT_RECONCILIATION_LIMIT).map(function(row) {
       return {
         enrollmentId: String(row.obj.enrollmentId),
+        paymentStatus: String(row.obj.paymentStatus || "").toLowerCase(),
         expired: checkoutExpired_(row.obj, new Date())
       };
     });
@@ -1721,9 +1728,10 @@ function runHazmatPaymentReconciliation() {
           return withScriptLock_(function() {
             clearSheetCache_(STUDENTS_SHEET);
             const student = findStudentByEnrollmentId_(candidate.enrollmentId);
-            if (!student || ["awaiting_payment", "checkout_recovery"].indexOf(
+            if (!student || ["awaiting_payment", "checkout_recovery", "creating_checkout"].indexOf(
               String(student.obj.paymentStatus || "").toLowerCase()) === -1) return verified;
-            const wasExpired = expireHazmatEnrollment_(student, !!(verified && verified.canceled));
+            const wasExpired = expireHazmatEnrollment_(student,
+              candidate.paymentStatus === "creating_checkout" || !!(verified && verified.canceled));
             if (wasExpired === "manual_review") return { ok: true, manualReview: true };
             return wasExpired ? { ok: true, expired: true } : { ok: true, paid: true, active: true };
           });
